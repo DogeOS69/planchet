@@ -8,8 +8,9 @@
 //! hashing. All types are reexports from their owning crates.
 //!
 //! `keccak` adds `keccak256`; `k256` and `p256` expose prehash verification in
-//! `crypto`. The four `openvm-*` features (or `openvm` together) select guest
-//! accelerators only on zkVM; native and WASM retain portable implementations.
+//! `crypto`. `crypto-backend` exposes the application's crypto provider hook;
+//! ordinary hashing and verification APIs use the installed provider, or the
+//! portable software implementation when no provider has been installed.
 //! Local private-key signing is a separate `signer-local` opt-in.
 //!
 //! ```
@@ -46,11 +47,12 @@ pub use planchet_signer as signer;
 #[cfg(feature = "rpc")]
 pub use planchet_transport as transport;
 
-/// Prehashed ECDSA verification with portable byte-oriented contracts.
+/// Hashing, prehashed ECDSA verification and application-owned crypto providers.
 ///
-/// Curve-specific functions are enabled by `k256` and `p256`. OpenVM backend
-/// features change the implementation only on `target_os = "zkvm"`.
-#[cfg(any(feature = "k256", feature = "p256"))]
+/// Curve-specific functions are enabled by `k256` and `p256`. `crypto-backend`
+/// exposes `CryptoProvider`, `SoftwareCrypto`, `crypto_provider()` and
+/// `install_default_provider(&'static dyn CryptoProvider)`.
+#[cfg(any(feature = "crypto-backend", feature = "k256", feature = "p256"))]
 pub use planchet_crypto as crypto;
 
 /// Keccak-256 (Ethereum padding, distinct from SHA3-256).

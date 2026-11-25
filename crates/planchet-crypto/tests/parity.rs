@@ -13,6 +13,7 @@ const PREHASH: [u8; 32] = hex!("ba7816bf8f01cfea414140de5dae2223b00361a396177a9c
 
 struct Vector {
     verify: Verify,
+    verify_cached: Verify,
     key: [u8; 65],
     signature: [u8; 64],
     high_s: [u8; 32],
@@ -24,33 +25,39 @@ struct Vector {
 }
 
 fn exercise(v: Vector) {
+    for verify in [v.verify, v.verify_cached] {
+        exercise_with(&v, verify);
+    }
+}
+
+fn exercise_with(v: &Vector, verify: Verify) {
     let mut compressed = [0; 33];
     compressed[0] = 2 | (v.key[64] & 1);
     compressed[1..].copy_from_slice(&v.key[1..33]);
     for key in [&v.key[..], &compressed[..]] {
-        assert_eq!((v.verify)(key, &PREHASH, &v.signature), Ok(()));
+        assert_eq!(verify(key, &PREHASH, &v.signature), Ok(()));
         let mut high = v.signature;
         high[32..].copy_from_slice(&v.high_s);
-        assert_eq!((v.verify)(key, &PREHASH, &high), Ok(()));
+        assert_eq!(verify(key, &PREHASH, &high), Ok(()));
         assert_eq!(
-            (v.verify)(key, &[0; 32], &v.signature),
+            verify(key, &[0; 32], &v.signature),
             Err(VerifyError::InvalidSignature)
         );
 
         // A prehash is an arbitrary 256-bit integer, not a canonical scalar.
         let mut reduced = v.signature;
         reduced[32..].copy_from_slice(&v.key[1..33]);
-        assert_eq!((v.verify)(key, &[0; 32], &reduced), Ok(()));
-        assert_eq!((v.verify)(key, &v.order, &reduced), Ok(()));
+        assert_eq!(verify(key, &[0; 32], &reduced), Ok(()));
+        assert_eq!(verify(key, &v.order, &reduced), Ok(()));
         reduced[32..].copy_from_slice(&v.max_digest_s);
-        assert_eq!((v.verify)(key, &[0xff; 32], &reduced), Ok(()));
+        assert_eq!(verify(key, &[0xff; 32], &reduced), Ok(()));
 
         for offset in [0, 32] {
             for scalar in [[0; 32], v.order, [0xff; 32]] {
                 let mut invalid = v.signature;
                 invalid[offset..offset + 32].copy_from_slice(&scalar);
                 assert_eq!(
-                    (v.verify)(key, &PREHASH, &invalid),
+                    verify(key, &PREHASH, &invalid),
                     Err(VerifyError::InvalidSignature)
                 );
             }
@@ -61,14 +68,14 @@ fn exercise(v: Vector) {
         identity_result[31] = 1;
         identity_result[63] = 1;
         assert_eq!(
-            (v.verify)(key, &v.order_minus_one, &identity_result),
+            verify(key, &v.order_minus_one, &identity_result),
             Err(VerifyError::InvalidSignature)
         );
     }
 
     compressed[0] ^= 1; // -G is on-curve, but cannot verify G's signature.
     assert_eq!(
-        (v.verify)(&compressed, &PREHASH, &v.signature),
+        verify(&compressed, &PREHASH, &v.signature),
         Err(VerifyError::InvalidSignature)
     );
 
@@ -81,20 +88,20 @@ fn exercise(v: Vector) {
         vec![7; 65],
     ] {
         assert_eq!(
-            (v.verify)(&key, &PREHASH, &v.signature),
+            verify(&key, &PREHASH, &v.signature),
             Err(VerifyError::InvalidPublicKey)
         );
     }
 
     let mut invalid = v.key;
-    invalid[1..].fill(0); // OpenVM's internal (0,0) identity sentinel.
+    invalid[1..].fill(0); // (0,0) is not a valid SEC1 curve point.
     assert_eq!(
-        (v.verify)(&invalid, &PREHASH, &v.signature),
+        verify(&invalid, &PREHASH, &v.signature),
         Err(VerifyError::InvalidPublicKey)
     );
     invalid[64] = 1; // Canonical coordinates, off the curve.
     assert_eq!(
-        (v.verify)(&invalid, &PREHASH, &v.signature),
+        verify(&invalid, &PREHASH, &v.signature),
         Err(VerifyError::InvalidPublicKey)
     );
     for offset in [1, 33] {
@@ -102,7 +109,7 @@ fn exercise(v: Vector) {
             invalid = v.key;
             invalid[offset..offset + 32].copy_from_slice(&coordinate);
             assert_eq!(
-                (v.verify)(&invalid, &PREHASH, &v.signature),
+                verify(&invalid, &PREHASH, &v.signature),
                 Err(VerifyError::InvalidPublicKey)
             );
         }
@@ -112,7 +119,7 @@ fn exercise(v: Vector) {
             compressed[0] = prefix;
             compressed[1..].copy_from_slice(&x);
             assert_eq!(
-                (v.verify)(&compressed, &PREHASH, &v.signature),
+                verify(&compressed, &PREHASH, &v.signature),
                 Err(VerifyError::InvalidPublicKey)
             );
         }
@@ -124,6 +131,10 @@ fn exercise(v: Vector) {
 fn k256_compact_contract() {
     exercise(Vector {
         verify: planchet_crypto::verify_k256_prehash,
+        verify_cached: |key, digest, signature| {
+            planchet_crypto::K256VerifyingKey::from_sec1_bytes(key)?
+                .verify_prehash(digest, signature)
+        },
         key: hex!(
             "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
         ),
@@ -145,6 +156,10 @@ fn k256_compact_contract() {
 fn p256_compact_contract() {
     exercise(Vector {
         verify: planchet_crypto::verify_p256_prehash,
+        verify_cached: |key, digest, signature| {
+            planchet_crypto::P256VerifyingKey::from_sec1_bytes(key)?
+                .verify_prehash(digest, signature)
+        },
         key: hex!(
             "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"
         ),

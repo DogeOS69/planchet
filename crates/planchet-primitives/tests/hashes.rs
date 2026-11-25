@@ -1,5 +1,5 @@
 //! Fixed independent vectors; see VECTORS.md for provenance.
-use planchet_primitives::{hash160, sha256, sha256d, sha256d_parts};
+use planchet_primitives::{hash160, sha256, sha256_parts, sha256d, sha256d_parts};
 
 fn hex<const N: usize>(text: &str) -> [u8; N] {
     assert_eq!(text.len(), N * 2);
@@ -14,6 +14,10 @@ fn sha256_known_answers_and_multipart_order() {
     );
     assert_eq!(
         sha256(b"abc"),
+        hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    );
+    assert_eq!(
+        sha256_parts(&[b"a", b"", b"bc"]),
         hex("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     );
     let empty = hex("5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456");
@@ -91,6 +95,11 @@ fn sha256_padding_alignment_and_streamed_parts() {
         let ripe = hex(ripe);
         for offset in 0..4 {
             let input = &storage[offset..offset + len];
+            assert_eq!(
+                sha256_parts(&[&input[..len / 2], &[], &input[len / 2..]]),
+                single,
+                "multipart length {len}, offset {offset}"
+            );
             assert_eq!(sha256(input), single, "length {len}, offset {offset}");
             assert_eq!(sha256d(input), double, "length {len}, offset {offset}");
             assert_eq!(hash160(input), ripe, "length {len}, offset {offset}");

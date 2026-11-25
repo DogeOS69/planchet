@@ -377,8 +377,8 @@ impl<'a> ParentCoinbaseRef<'a> {
         }
     }
     /// Parent txid excludes marker, flags, and witness, even when retained in wire bytes.
-    /// Software hashing streams without allocation. The OpenVM SHA-256 backend
-    /// joins these stripped slices in a guest allocation; see `sha256d_parts`.
+    /// Both hash rounds use the application provider through `sha256d_parts`;
+    /// the portable software default streams without allocation.
     pub fn txid(&self) -> Txid {
         if !self.witness_encoding {
             return Txid::from_wire_bytes(sha256d(self.bytes));

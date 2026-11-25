@@ -10,18 +10,12 @@ description = "Allocation-free Dogecoin hashes, networks, addresses, and exact a
 default = ["alloc"]
 alloc = []
 std = ["alloc"]
-keccak = ["dep:sha3"]
-openvm-sha256 = ["alloc", "dep:openvm-sha2"]
-openvm-keccak256 = ["alloc", "keccak", "dep:openvm-keccak256"]
+keccak = ["planchet-crypto/keccak"]
+crypto-backend = ["planchet-crypto/crypto-backend"]
 
 [dependencies]
-sha2 = { version = "0.10.9", default-features = false, features = ["force-soft"] }
+planchet-crypto = { path = "../planchet-crypto", default-features = false }
+# Digest is used for RIPEMD-160, whose SHA-256 input uses the provider.
+digest = { version = "0.10.7", default-features = false }
 ripemd = { version = "0.1.3", default-features = false }
 bs58 = { version = "0.5.1", default-features = false }
-sha3 = { version = "0.10.8", optional = true, default-features = false }
-
-# Match DogeOS guest package IDs; Cargo.lock must freeze v1.7.0 at
-# 425913bdc743ef44236daf472ec53c2c05b75fa1.
-[target.'cfg(all(target_os = "zkvm", target_arch = "riscv32"))'.dependencies]
-openvm-sha2 = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.7.0", optional = true, default-features = false }
-openvm-keccak256 = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.7.0", optional = true, default-features = false }

@@ -6,7 +6,6 @@ cannot invoke native tools. See README.md for compilation and artifact checks.
 """
 
 import argparse
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -24,53 +23,18 @@ NATIVE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hh", ".hpp", ".h
                    ".s", ".asm", ".cu", ".cuh", ".o", ".obj", ".a", ".lib", ".so", ".dylib", ".dll"}
 REGISTRY_SOURCES = {"registry+https://github.com/rust-lang/crates.io-index",
                     "sparse+https://index.crates.io/"}
-PRIVATE_KEY_PACKAGES = {"planchet-signer", "planchet-psbt", "planchet-crypto", "k256", "p256", "ecdsa", "elliptic-curve"}
+PRIVATE_KEY_PACKAGES = {"planchet-signer", "planchet-psbt", "k256", "p256", "ecdsa", "elliptic-curve"}
 NETWORK_PACKAGES = {"planchet-provider", "planchet-transport", "planchet-rpc-types",
                     "reqwest", "hyper", "hyper-util", "h2", "tokio", "mio", "socket2",
                     "native-tls", "rustls", "getrandom"}
 
 
-OPENVM_TARGET = "riscv32im-risc0-zkvm-elf"
-OPENVM_SHA = "425913bdc743ef44236daf472ec53c2c05b75fa1"
-OPENVM_SOURCE = f"git+https://github.com/openvm-org/openvm.git?tag=v1.7.0#{OPENVM_SHA}"
-# Only guest libraries and the proc macros they actually need. Circuit/prover,
-# pairing, other revisions, registry lookalikes and repository-wide exceptions
-# are deliberately absent. RustCrypto k256/p256 from crates.io remain allowed.
-OPENVM_PACKAGES = dict.fromkeys({
-    "openvm", "openvm-platform", "openvm-custom-insn", "openvm-rv32im-guest",
-    "openvm-sha2", "openvm-sha256-guest", "openvm-keccak256", "openvm-keccak256-guest",
-    "openvm-algebra-guest", "openvm-algebra-moduli-macros", "openvm-algebra-complex-macros",
-    "openvm-ecc-guest", "openvm-ecc-sw-macros", "openvm-macros-common",
-}, "1.7.0")
-OPENVM_PACKAGES.update({"openvm-custom-insn": "0.1.0", "k256": "0.13.4", "p256": "0.13.2"})
-# These two pinned VM-runtime files provide memory operations, not cryptography.
-# They were generated upstream from musl C; no C compiler runs in the guest build.
-# Match identity, source, path AND bytes; never exempt all assembly or an SDK tree.
-OPENVM_RUNTIME_ASM = {
-    "src/memcpy.s": "14912407df84e63f2e3a83e80f97bf685dac47c5c6bca6d4de38763a3a7bdc19",
-    "src/memset.s": "381b51e8030234748fb76052af49b3fd8c611e5807fd09ab884ff88a0eba03e2",
-}
-OPENVM_FEATURES = "planchet/openvm,planchet/psbt,planchet/signer"
-
-
-def approved_openvm(package):
-    return (package["source"] == OPENVM_SOURCE
-            and OPENVM_PACKAGES.get(package["name"]) == package["version"])
-
-
-def runtime_assembly(package, relative, path):
-    expected = OPENVM_RUNTIME_ASM.get(relative.as_posix())
-    return (package["name"] == "openvm" and approved_openvm(package)
-            and expected is not None and hashlib.sha256(path.read_bytes()).hexdigest() == expected)
-
-
-def check_openvm_lock(workspace):
-    """Even a host-only screen must notice a moved tag in the frozen lockfile."""
-    text = (workspace / "Cargo.lock").read_text()
-    sources = re.findall(r'^source = "(git\+https://github\.com/openvm-org/openvm(?:\.git)?[^"\n]*)"$',
-                         text, re.MULTILINE)
-    return [f"Cargo.lock: OpenVM source must be exactly {OPENVM_SOURCE}: {source}"
-            for source in sorted(set(sources)) if source != OPENVM_SOURCE]
+def check_lock_sources(workspace):
+    """Reject stale non-registry sources even when a selected graph omits them."""
+    sources = re.findall(r'^source = "([^"\n]+)"$',
+                         (workspace / "Cargo.lock").read_text(), re.MULTILINE)
+    return [f"Cargo.lock: non-allowlisted source: {source}"
+            for source in sorted(set(sources)) if source not in REGISTRY_SOURCES]
 
 
 def forbidden(identity):
@@ -119,10 +83,8 @@ def screen(metadata, workspace, selected_ids=None):
         if source is None:
             if not directory.is_relative_to(workspace / "crates"):
                 violations.append(f"{label}: path source outside workspace crates/: {directory}")
-        elif source not in REGISTRY_SOURCES and not approved_openvm(package):
+        elif source not in REGISTRY_SOURCES:
             violations.append(f"{label}: non-allowlisted source: {source}")
-        if (package["name"] == "openvm" or package["name"].startswith("openvm-")) and not approved_openvm(package):
-            violations.append(f"{label}: OpenVM package is not an approved pinned guest library")
         if package.get("links"):
             violations.append(f'{label}: native links declaration {package["links"]}')
         # A rename cannot hide the underlying resolved package or its source.
@@ -141,14 +103,13 @@ def screen(metadata, workspace, selected_ids=None):
             relative = path.relative_to(directory)
             if any(part in {".git", "target", "__pycache__"} for part in relative.parts):
                 continue
-            if (path.is_file() and path.suffix.lower() in NATIVE_SUFFIXES
-                    and not runtime_assembly(package, relative, path)):
+            if path.is_file() and path.suffix.lower() in NATIVE_SUFFIXES:
                 violations.append(f"{label}: bundled native source/object: {relative}")
     return packages, build_scripts, build_edges, sorted(set(violations))
 
 
 def tree_label(package):
-    """Cargo tree's {p} display, including source to distinguish curve forks."""
+    """Cargo tree's {p} display, including source to distinguish forks."""
     label = f'{package["name"]} v{package["version"]}'
     if any("proc-macro" in target["kind"] for target in package["targets"]):
         label += " (proc-macro)"
@@ -192,88 +153,47 @@ def selected_tree(metadata, tree):
     return selected, features
 
 
-def openvm_profile_violations(packages, features, runtime_ids):
-    errors = []
-    names = {package["name"] for package in packages}
-    for name in sorted(names & (NETWORK_PACKAGES - {"getrandom"})):
-        errors.append(f"openvm-policy: unexpected networking package {name}")
-    if any(package["name"] == "getrandom" and package["id"] in runtime_ids for package in packages):
-        errors.append("openvm-policy: unexpected guest runtime entropy package getrandom")
-    required = {"openvm-sha2", "openvm-keccak256", "k256", "p256"}
-    accelerated = {package["name"] for package in packages if approved_openvm(package)}
-    for name in sorted(required - accelerated):
-        errors.append(f"openvm-policy: missing pinned accelerated package {name}")
+def profile_violations(packages, features, denied):
+    errors = [f"unexpected package {name}"
+              for name in sorted({package["name"] for package in packages} & denied)]
     for package in packages:
-        enabled = features.get(package["id"], set())
-        if package["name"] == "planchet-signer" and "local" in enabled:
-            errors.append("openvm-policy: local signing must remain disabled")
+        if package["name"] == "planchet-signer" and "local" in features.get(package["id"], set()):
+            errors.append("local signing must remain disabled")
     return errors
 
 
-def load_openvm_graph(workspace, toolchain):
-    common = ["--locked", "--no-default-features", "--features", OPENVM_FEATURES]
-    # Keep host-side proc-macro/build dependencies in metadata too; the target
-    # tree below selects actual packages for both execution platforms. Filtering
-    # metadata to zkVM alone drops host-only dependencies such as libc.
-    metadata = json.loads(subprocess.check_output([
-        "cargo", f"+{toolchain}", "metadata", "--format-version", "1",
-        *common,
-    ], cwd=workspace, text=True))
-    tree = subprocess.check_output([
-        "cargo", f"+{toolchain}", "tree", "-p", "planchet", "--target", OPENVM_TARGET,
-        "-e", "normal,build,dev", "--prefix", "none", "--format", "{p}|{f}", *common,
-    ], cwd=workspace, text=True)
-    selected, features = selected_tree(metadata, tree)
-    # Proc macros/build scripts execute on the host. Their dependencies are
-    # still source-screened above; a separate normal tree establishes what is
-    # shipped into the guest, without allowing host-only entropy into runtime.
-    runtime_tree = subprocess.check_output([
-        "cargo", f"+{toolchain}", "tree", "-p", "planchet", "--target", OPENVM_TARGET,
-        "-e", "normal,no-proc-macro", "--prefix", "none", "--format", "{p}|{f}", *common,
-    ], cwd=workspace, text=True)
-    runtime, _ = selected_tree(metadata, runtime_tree)
-    return metadata, selected, features, runtime
-
-
-def screen_openvm(workspace, toolchain):
-    metadata, selected, features, runtime = load_openvm_graph(workspace, toolchain)
-    packages, scripts, edges, errors = screen(metadata, workspace, selected)
-    errors.extend(openvm_profile_violations(packages, features, runtime))
-    host_entropy = [package for package in packages
-                    if package["name"] == "getrandom" and package["id"] not in runtime]
-    if host_entropy:
-        print("openvm-policy: getrandom is host proc-macro/build-time only; sources screened, absent from guest runtime")
-    print(f"openvm-policy: {len(packages)} packages on {OPENVM_TARGET}; "
-          + ("FAIL" if errors else "PASS pinned sources and verification-only graph"))
-    return packages, scripts, edges, errors
-
-
 def screen_profiles(workspace, toolchain, host_target):
-    """Use Cargo's package-selected trees to avoid workspace feature unification.
+    """Screen independently selected consumer trees without workspace unification.
 
-    Metadata selects the entire workspace. These independent invocations instead
-    check consumer-specific normal/build graphs. Dev dependencies stay covered by
-    the workspace metadata screen, but are not shipped in a consumer library.
+    Dev dependencies are covered by the workspace screen. These consumer graphs
+    include normal/build edges and inspect resolved features as well as names.
     """
+    metadata = json.loads(subprocess.check_output([
+        "cargo", f"+{toolchain}", "metadata", "--locked", "--format-version", "1", "--all-features",
+    ], cwd=workspace, text=True))
     profiles = [
         ("default", ["-p", "planchet", "--target", host_target], PRIVATE_KEY_PACKAGES),
         ("rpc-http", ["-p", "planchet", "--features", "rpc,http", "--target", host_target], PRIVATE_KEY_PACKAGES),
-        ("host-backends", ["-p", "planchet", "--no-default-features", "--features", "openvm",
-                           "--target", host_target], {"planchet-signer", "planchet-psbt", "getrandom"}),
-        ("wasm-policy", ["-p", "planchet-signer", "--no-default-features", "--features", "verify,psbt",
-                         "--target", "wasm32-unknown-unknown"], NETWORK_PACKAGES),
+        ("provider-sha256", ["-p", "planchet", "--no-default-features", "--features", "crypto-backend",
+                             "--target", host_target], PRIVATE_KEY_PACKAGES | NETWORK_PACKAGES | {"sha3"}),
+        ("provider-curves", ["-p", "planchet", "--no-default-features", "--features", "crypto-backend,keccak,k256,p256",
+                             "--target", host_target], NETWORK_PACKAGES | {"planchet-signer", "planchet-psbt"}),
+        ("verification", ["-p", "planchet", "--no-default-features", "--features", "crypto-backend,psbt,signer",
+                           "--target", host_target], NETWORK_PACKAGES),
+        ("wasm-policy", ["-p", "planchet-signer", "--no-default-features", "--features", "verify,psbt,crypto-backend",
+                          "--target", "wasm32-unknown-unknown"], NETWORK_PACKAGES),
     ]
     violations = []
     for label, arguments, denied in profiles:
-        command = ["cargo", f"+{toolchain}", "tree", "--locked", "-e", "normal,build",
-                   "--prefix", "none", "--format", "{p}", *arguments]
-        tree = subprocess.check_output(command, cwd=workspace, text=True)
-        names = {line.split()[0] for line in tree.splitlines() if line.strip()}
-        rejected = names & denied
-        if rejected:
-            violations.append(f'{label}: unexpected packages {", ".join(sorted(rejected))}')
-        print(f'{label}: {len(names)} packages; ' + ("FAIL" if rejected else "PASS separation"))
-    violations.extend(screen_openvm(workspace, toolchain)[3])
+        tree = subprocess.check_output([
+            "cargo", f"+{toolchain}", "tree", "--locked", "-e", "normal,build",
+            "--prefix", "none", "--format", "{p}|{f}", *arguments,
+        ], cwd=workspace, text=True)
+        selected, features = selected_tree(metadata, tree)
+        packages, _, _, errors = screen(metadata, workspace, selected)
+        errors.extend(profile_violations(packages, features, denied))
+        violations.extend(f"{label}: {error}" for error in errors)
+        print(f'{label}: {len(packages)} packages; ' + ("FAIL" if errors else "PASS separation"))
     return violations
 
 
@@ -283,39 +203,26 @@ def main():
     parser.add_argument("--target", help="target triple; defaults to the selected rustc host")
     parser.add_argument("--no-default-features", action="store_true",
                         help="screen the minimal workspace graph instead of all features")
-    parser.add_argument("--openvm", action="store_true",
-                        help="screen the actual zkVM facade openvm,psbt,signer consumer graph")
     parser.add_argument("--check-profiles", action="store_true",
-                        help="also screen default/RPC separation, WASM policy, and actual pinned OpenVM graph")
+                        help="also screen default/RPC, SHA-only provider, curve and verification profiles")
     args = parser.parse_args()
     workspace = Path(__file__).resolve().parents[1]
     version = subprocess.check_output(["rustc", f"+{args.toolchain}", "-vV"], text=True)
     host_target = next(line.split(": ", 1)[1] for line in version.splitlines() if line.startswith("host: "))
-    if args.openvm:
-        if args.target is not None and args.target != OPENVM_TARGET:
-            parser.error(f"--openvm requires --target {OPENVM_TARGET} (or omit --target)")
-        if args.no_default_features:
-            parser.error("--openvm already selects no defaults and its supported feature set")
-        args.target = OPENVM_TARGET
-        packages, scripts, edges, violations = screen_openvm(workspace, args.toolchain)
-    else:
-        args.target = args.target or host_target
-        command = ["cargo", f"+{args.toolchain}", "metadata", "--locked", "--format-version", "1",
-                   "--filter-platform", args.target,
-                   "--no-default-features" if args.no_default_features else "--all-features"]
-        print("Running:", " ".join(command), flush=True)
-        metadata = json.loads(subprocess.check_output(command, cwd=workspace, text=True))
-        if metadata.get("resolve") is None:
-            raise ValueError("cargo metadata returned no resolved graph")
-        packages, scripts, edges, violations = screen(metadata, workspace)
-    violations.extend(check_openvm_lock(workspace))
+    args.target = args.target or host_target
+    command = ["cargo", f"+{args.toolchain}", "metadata", "--locked", "--format-version", "1",
+               "--filter-platform", args.target,
+               "--no-default-features" if args.no_default_features else "--all-features"]
+    print("Running:", " ".join(command), flush=True)
+    metadata = json.loads(subprocess.check_output(command, cwd=workspace, text=True))
+    if metadata.get("resolve") is None:
+        raise ValueError("cargo metadata returned no resolved graph")
+    packages, scripts, edges, violations = screen(metadata, workspace)
+    violations.extend(check_lock_sources(workspace))
     if args.check_profiles:
         violations.extend(screen_profiles(workspace, args.toolchain, host_target))
     print(f"Screened {len(packages)} resolved packages on {args.target} (normal/dev/build).")
     print("Build dependencies: " + (", ".join(sorted(edges)) or "none"))
-    runtime = [package for package in packages if package["name"] == "openvm" and approved_openvm(package)]
-    if runtime:
-        print("VM runtime exception: pinned, byte-checked RISC-V memcpy/memset assembly; no C/native crypto exception.")
     print("Rust build scripts requiring source review:")
     for path in scripts:
         print(" ", path)

@@ -11,7 +11,7 @@ default = ["local", "psbt"]
 verify = ["dep:k256", "dep:planchet-crypto", "planchet-crypto/k256"]
 local = ["verify", "dep:zeroize"]
 psbt = ["verify", "dep:planchet-psbt"]
-openvm-k256 = ["verify", "planchet-crypto/openvm-k256", "planchet-psbt?/openvm-k256"]
+crypto-backend = ["planchet-crypto/crypto-backend", "planchet-primitives/crypto-backend", "planchet-consensus/crypto-backend", "planchet-psbt?/crypto-backend"]
 
 [dependencies]
 planchet-primitives = { path = "../planchet-primitives", default-features = false }

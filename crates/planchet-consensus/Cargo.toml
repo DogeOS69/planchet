@@ -12,9 +12,11 @@ alloc = ["planchet-primitives/alloc"]
 std = ["alloc", "planchet-primitives/std"]
 pow-scrypt = ["alloc", "dep:scrypt"]
 keccak = ["planchet-primitives/keccak"]
-openvm-sha256 = ["planchet-primitives/openvm-sha256"]
-openvm-keccak256 = ["keccak", "planchet-primitives/openvm-keccak256"]
+crypto-backend = ["planchet-primitives/crypto-backend"]
 
 [dependencies]
 planchet-primitives = { path = "../planchet-primitives", default-features = false }
 scrypt = { version = "0.11.0", optional = true, default-features = false }
+
+[dev-dependencies]
+planchet-crypto = { path = "../planchet-crypto", default-features = false }

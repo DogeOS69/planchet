@@ -10,7 +10,7 @@ description = "Byte-preserving BIP174 v0 maps and checked offline legacy P2PKH p
 default = ["alloc"]
 alloc = ["planchet-consensus/alloc", "dep:k256", "dep:planchet-crypto", "planchet-crypto/k256"]
 std = ["alloc"]
-openvm-k256 = ["alloc", "planchet-crypto/openvm-k256"]
+crypto-backend = ["planchet-crypto/crypto-backend", "planchet-primitives/crypto-backend", "planchet-consensus/crypto-backend"]
 
 [dependencies]
 planchet-primitives = { path = "../planchet-primitives", default-features = false }

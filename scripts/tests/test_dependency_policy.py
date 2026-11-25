@@ -3,7 +3,6 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
     "dependency_policy", Path(__file__).resolve().parents[1] / "check-dependency-policy.py")
@@ -69,101 +68,45 @@ class DependencyPolicyTests(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
-    def pinned(self, name="openvm", version="1.7.0"):
-        metadata = self.graph(name, "backend", source=policy.OPENVM_SOURCE)
-        metadata["packages"][1]["version"] = version
-        return metadata
+    def test_git_sources_are_rejected_even_for_registry_package_names(self):
+        metadata = self.graph("k256", "backend", source="git+https://example.org/crypto?rev=abc#abc")
+        self.assertIn("k256 1.0.0: non-allowlisted source: git+https://example.org/crypto?rev=abc#abc",
+                      policy.screen(metadata, self.root)[3])
 
-    def test_only_reviewed_guest_package_versions_at_exact_tag_and_sha_are_allowed(self):
-        metadata = self.pinned("k256", "0.13.4")
-        dependency = metadata["packages"][1]
-        self.assertEqual(policy.screen(metadata, self.root)[3], [])
-        # Same commit under a rev selector has a different Cargo package ID.
-        invalid = [
-            policy.OPENVM_SOURCE.replace("tag=v1.7.0", "rev=" + policy.OPENVM_SHA),
-            policy.OPENVM_SOURCE.replace(policy.OPENVM_SHA, "0" * 40),
-            policy.OPENVM_SOURCE.replace("openvm-org", "lookalike-org"),
-            policy.OPENVM_SOURCE.replace("v1.7.0", "v1.7.1"),
-        ]
-        for source in invalid:
-            with self.subTest(source=source):
-                dependency["source"] = source
-                self.assertTrue(any("non-allowlisted source" in error
-                                    for error in policy.screen(metadata, self.root)[3]))
-        dependency["source"] = policy.OPENVM_SOURCE
-        dependency["version"] = "0.13.5"
-        self.assertTrue(any("non-allowlisted source" in error
-                            for error in policy.screen(metadata, self.root)[3]))
-
-    def test_pinned_repository_does_not_allow_unreviewed_sdk_packages_or_native_links(self):
-        metadata = self.pinned("openvm-circuit")
-        self.assertTrue(any("non-allowlisted source" in error
-                            for error in policy.screen(metadata, self.root)[3]))
-        metadata = self.pinned()
-        metadata["packages"][1]["links"] = "crypto"
-        self.assertIn("openvm 1.7.0: native links declaration crypto", policy.screen(metadata, self.root)[3])
-
-    def test_openvm_registry_lookalike_is_rejected(self):
-        metadata = self.graph("openvm")
-        metadata["packages"][1]["version"] = "1.7.0"
-        self.assertTrue(any("not an approved pinned guest library" in error
-                            for error in policy.screen(metadata, self.root)[3]))
-
-    def test_runtime_assembly_exception_requires_identity_path_source_and_exact_bytes(self):
-        metadata = self.pinned()
-        package = metadata["packages"][1]
-        directory = Path(package["manifest_path"]).parent
-        source = directory / "src"
+    def test_every_native_source_and_object_suffix_is_rejected(self):
+        metadata = self.graph()
+        source = self.root / "registry" / "sha2" / "src"
         source.mkdir()
-        runtime = source / "memcpy.s"
-        runtime.write_bytes(b"known runtime assembly fixture\n")
-        # A tiny reviewed fixture substitutes for the much larger upstream file.
-        # This fixed digest was computed independently with shasum -a 256.
-        digest = "0e4eb0a9928beb1f643fd734c33e0b6c036b1ebde787ac4f93bba5f452abe83b"
-        with patch.dict(policy.OPENVM_RUNTIME_ASM, {"src/memcpy.s": digest}):
-            self.assertEqual(policy.screen(metadata, self.root)[3], [])
-            for suffix in [".c", ".s", ".o", ".cu"]:
-                path = source / ("crypto" + suffix)
-                path.write_bytes(runtime.read_bytes())
-                errors = policy.screen(metadata, self.root)[3]
-                self.assertIn(f"openvm 1.7.0: bundled native source/object: src/crypto{suffix}", errors)
+        for suffix in [".c", ".cpp", ".s", ".asm", ".o", ".a", ".cu", ".so"]:
+            with self.subTest(suffix=suffix):
+                path = source / ("backend" + suffix)
+                path.write_bytes(b"native fixture")
+                self.assertIn(f"sha2 1.0.0: bundled native source/object: src/backend{suffix}",
+                              policy.screen(metadata, self.root)[3])
                 path.unlink()
-            runtime.write_bytes(b"changed assembly\n")
-            self.assertIn("openvm 1.7.0: bundled native source/object: src/memcpy.s",
-                          policy.screen(metadata, self.root)[3])
-            runtime.write_bytes(b"known runtime assembly fixture\n")
-            package["source"] = policy.OPENVM_SOURCE.replace(policy.OPENVM_SHA, "0" * 40)
-            self.assertTrue(any("bundled native source/object" in error
-                                for error in policy.screen(metadata, self.root)[3]))
-            package["source"] = policy.OPENVM_SOURCE
-            package["name"] = "openvm-platform"
-            self.assertTrue(any("bundled native source/object" in error
-                                for error in policy.screen(metadata, self.root)[3]))
 
-    def test_frozen_lock_rejects_moved_tag_even_when_host_graph_omits_openvm(self):
+    def test_lock_rejects_git_sources_even_when_selected_graph_omits_them(self):
         lock = self.root / "Cargo.lock"
-        lock.write_text(f'source = "{policy.OPENVM_SOURCE}"\n')
-        self.assertEqual(policy.check_openvm_lock(self.root), [])
-        lock.write_text(f'source = "{policy.OPENVM_SOURCE.replace(policy.OPENVM_SHA, "0" * 40)}"\n')
-        self.assertTrue(any("OpenVM source must be exactly" in error
-                            for error in policy.check_openvm_lock(self.root)))
+        lock.write_text('source = "registry+https://github.com/rust-lang/crates.io-index"\n')
+        self.assertEqual(policy.check_lock_sources(self.root), [])
+        lock.write_text('source = "git+https://example.org/crypto?tag=v1#abc"\n')
+        self.assertEqual(policy.check_lock_sources(self.root),
+                         ["Cargo.lock: non-allowlisted source: git+https://example.org/crypto?tag=v1#abc"])
 
-    def test_consumer_tree_distinguishes_software_and_accelerated_curve_identity(self):
-        metadata = self.pinned("k256", "0.13.4")
-        accelerated = metadata["packages"][1]
-        software = dict(accelerated, id="software", source="registry+https://github.com/rust-lang/crates.io-index")
-        metadata["packages"].append(software)
-        macro = dict(accelerated, id="macro", name="openvm-custom-insn", version="0.1.0",
-                     targets=[{"kind": ["proc-macro"]}])
-        metadata["packages"].append(macro)
-        tree = ("k256 v0.13.4|ecdsa\n"
-                "k256 v0.13.4 (https://github.com/openvm-org/openvm.git?tag=v1.7.0#425913bd)|arithmetic,ecdsa\n"
-                "openvm-custom-insn v0.1.0 (proc-macro) (https://github.com/openvm-org/openvm.git?tag=v1.7.0#425913bd)|\n"
-                "k256 v0.13.4|ecdsa (*)\n")
+    def test_consumer_tree_distinguishes_registry_git_and_macro_identities(self):
+        metadata = self.graph("k256", "backend")
+        software = metadata["packages"][1]
+        alternate = dict(software, id="alternate", source="git+https://example.org/crypto?rev=12345678#12345678abcdef")
+        macro = dict(software, id="macro", name="derive-key", targets=[{"kind": ["proc-macro"]}])
+        metadata["packages"].extend([alternate, macro])
+        tree = ("k256 v1.0.0|ecdsa\n"
+                "k256 v1.0.0 (https://example.org/crypto?rev=12345678#12345678)|arithmetic,ecdsa\n"
+                "derive-key v1.0.0 (proc-macro)|\n"
+                "k256 v1.0.0|ecdsa (*)\n")
         selected, features = policy.selected_tree(metadata, tree)
-        self.assertEqual(selected, {"software", "dependency", "macro"})
-        self.assertEqual(features["dependency"], {"arithmetic", "ecdsa"})
-        self.assertEqual(features["software"], {"ecdsa"})
+        self.assertEqual(selected, {"dependency", "alternate", "macro"})
+        self.assertEqual(features["alternate"], {"arithmetic", "ecdsa"})
+        self.assertEqual(features["dependency"], {"ecdsa"})
         for invalid in ["", "unknown v0.1.0|\n"]:
             with self.subTest(tree=invalid), self.assertRaises(ValueError):
                 policy.selected_tree(metadata, invalid)
@@ -175,36 +118,21 @@ class DependencyPolicyTests(unittest.TestCase):
         selected.add("dependency")
         self.assertIn("ring 1.0.0: forbidden package identity", policy.screen(metadata, self.root, selected)[3])
 
-    def profile(self):
-        packages = [
-            {"id": name, "name": name, "version": version, "source": policy.OPENVM_SOURCE}
-            for name, version in [("openvm-sha2", "1.7.0"), ("openvm-keccak256", "1.7.0"),
-                                  ("k256", "0.13.4"), ("p256", "0.13.2")]
-        ]
-        packages.extend([
-            {"id": "signer", "name": "planchet-signer", "source": None},
-            {"id": "entropy", "name": "getrandom", "source": "registry+https://github.com/rust-lang/crates.io-index"},
-        ])
-        return packages
+    def test_sha_only_provider_profile_permits_crypto_owner_but_rejects_optional_algorithms(self):
+        packages = [{"id": "crypto", "name": "planchet-crypto"}]
+        denied = policy.PRIVATE_KEY_PACKAGES | policy.NETWORK_PACKAGES | {"sha3"}
+        self.assertEqual(policy.profile_violations(packages, {}, denied), [])
+        for name in ["k256", "p256", "sha3", "getrandom", "planchet-signer"]:
+            with self.subTest(package=name):
+                self.assertIn(f"unexpected package {name}",
+                              policy.profile_violations(packages + [{"id": name, "name": name}], {}, denied))
 
-    def test_host_proc_macro_entropy_is_screened_but_guest_runtime_entropy_is_rejected(self):
-        packages = self.profile()
-        runtime = {"signer", "k256", "p256", "openvm-sha2", "openvm-keccak256"}
-        self.assertEqual(policy.openvm_profile_violations(packages, {"signer": {"verify"}}, runtime), [])
-        runtime.add("entropy")
-        self.assertIn("openvm-policy: unexpected guest runtime entropy package getrandom",
-                      policy.openvm_profile_violations(packages, {"signer": {"verify"}}, runtime))
-        # Host placement never excuses prohibited crypto sources.
-        metadata = self.graph("ring", "host_macro_dependency", kind="build")
-        self.assertIn("ring 1.0.0: forbidden package identity", policy.screen(metadata, self.root)[3])
-
-    def test_openvm_profile_requires_accelerators_and_keeps_local_signing_separate(self):
-        packages = self.profile()
-        self.assertIn("openvm-policy: local signing must remain disabled",
-                      policy.openvm_profile_violations(packages, {"signer": {"local", "verify"}}, set()))
-        packages = [package for package in packages if package["name"] != "p256"]
-        self.assertIn("openvm-policy: missing pinned accelerated package p256",
-                      policy.openvm_profile_violations(packages, {}, set()))
+    def test_verification_profile_rejects_network_entropy_and_local_signing(self):
+        packages = [{"id": "signer", "name": "planchet-signer"},
+                    {"id": "entropy", "name": "getrandom"}]
+        self.assertEqual(policy.profile_violations(packages[:1], {"signer": {"verify"}}, policy.NETWORK_PACKAGES), [])
+        self.assertEqual(policy.profile_violations(packages, {"signer": {"local", "verify"}}, policy.NETWORK_PACKAGES),
+                         ["unexpected package getrandom", "local signing must remain disabled"])
 
 
 if __name__ == "__main__":

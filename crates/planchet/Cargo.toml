@@ -18,15 +18,11 @@ signer = ["alloc", "dep:planchet-signer", "planchet-signer/verify"]
 signer-local = ["signer", "planchet-signer/local"]
 pow-scrypt = ["planchet-consensus/pow-scrypt"]
 
-# Backend opt-ins never enable networking or local private-key signing.
+# Crypto opt-ins never enable networking or local private-key signing.
+crypto-backend = ["dep:planchet-crypto", "planchet-crypto/crypto-backend", "planchet-primitives/crypto-backend", "planchet-consensus/crypto-backend", "planchet-psbt?/crypto-backend", "planchet-signer?/crypto-backend"]
 keccak = ["planchet-primitives/keccak"]
 k256 = ["dep:planchet-crypto", "planchet-crypto/k256"]
 p256 = ["dep:planchet-crypto", "planchet-crypto/p256"]
-openvm-sha256 = ["planchet-primitives/openvm-sha256", "planchet-consensus/openvm-sha256"]
-openvm-keccak256 = ["keccak", "planchet-primitives/openvm-keccak256", "planchet-consensus/openvm-keccak256"]
-openvm-k256 = ["k256", "planchet-crypto/openvm-k256", "planchet-psbt?/openvm-k256", "planchet-signer?/openvm-k256"]
-openvm-p256 = ["p256", "planchet-crypto/openvm-p256"]
-openvm = ["openvm-sha256", "openvm-keccak256", "openvm-k256", "openvm-p256"]
 
 [dependencies]
 planchet-primitives = { version = "0.1.0", path = "../planchet-primitives", default-features = false }

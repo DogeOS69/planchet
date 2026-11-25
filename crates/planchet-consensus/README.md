@@ -15,28 +15,22 @@ bindings even with `force-soft`; these are visible in Cargo's dependency graph.
 | `std` | Implies `alloc`, forwards primitives' `std` feature |
 | `pow-scrypt` | Optional native scrypt tools, implies `alloc`; does not validate AuxPoW mining commitments |
 | `keccak` | Forward primitives' portable `keccak256` API (Keccak-256, not SHA3-256) |
-| `openvm-sha256` | Forward primitives' OpenVM SHA-256 backend on `riscv32`, `target_os = "zkvm"`; other targets keep software hashing |
-| `openvm-keccak256` | Implies `keccak`; forward primitives' OpenVM Keccak-256 backend on that same guest target |
+| `crypto-backend` | Forward application provider registration; enables no optional algorithms or allocator |
 
-All consensus SHA256d operations use primitives' backend selection, including
+All consensus SHA256d operations use primitives' application provider, including
 native and owned txids, header IDs, Merkle and inclusion hashes, signing hashes,
-and stripped witness parent txids. Primitives expose stable `sha256`, `sha256d`,
-`hash160`, and `sha256d_parts` functions, plus `keccak256` with `keccak`.
+and stripped witness parent txids. Primitives expose `sha256`, `sha256_parts`,
+`sha256d`, `hash160`, and `sha256d_parts`, plus `keccak256` with `keccak`.
+`sha256_parts` computes a single digest; `sha256d_parts` routes both rounds through
+the same provider. The software default streams all parts without allocation.
+Borrowed decoding itself remains allocation-free.
 
-OpenVM features enable primitives' `alloc` feature and require a guest allocator.
-The official safe `openvm-sha2` and `openvm-keccak256` wrappers accept contiguous
-input; contiguous hashes pass their slice directly without a Planchet buffer.
-The wrappers may allocate for alignment. `sha256d_parts` joins multiple nonempty
-slices in one allocation on the OpenVM backend, so witness parent txids allocate
-their stripped serialization there. Zero or one nonempty part takes the direct
-path. The software backend streams parts without allocation, including when
-`alloc` is enabled. Borrowed decoding itself remains allocation-free.
-
-Official guest dependencies are optional and target-gated. Their Cargo source
-uses tag `v1.7.0` to match DogeOS package IDs; the workspace lockfile must retain
-SHA `425913bdc743ef44236daf472ec53c2c05b75fa1`. Enable the matching SHA-256 and/or
-Keccak extension in the application's OpenVM SDK configuration. No acceleration
-is selected for host, wasm, or other RISC-V targets by these flags.
+Applications install a `planchet_crypto::CryptoProvider` with `crypto-backend`.
+Registration is independent of optional `keccak`, `k256`, and `p256` features;
+SHA-only applications need no optional algorithms. Every enabled provider method
+has a portable Rust software default. Accelerator implementations and guest
+initialization belong to the final application. On targets without atomics,
+registration requires an application-provided `critical-section` implementation.
 
 The fixed-stack Merkle calculator does not allocate a transaction-count-sized
 vector. Borrowed decoders never allocate. Iterators re-read validated bytes,

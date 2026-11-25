@@ -1,0 +1,26 @@
+[package]
+publish.workspace = true
+name = "planchet-provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Typed Dogecoin Core JSON-RPC 1.0 client and anchored reader"
+
+[features]
+default = []
+http = ["planchet-transport/http"]
+
+[dependencies]
+planchet-primitives = { path = "../planchet-primitives", default-features = false }
+planchet-consensus = { path = "../planchet-consensus", default-features = false }
+planchet-rpc-types = { path = "../planchet-rpc-types" }
+planchet-transport = { path = "../planchet-transport" }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc", "raw_value"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["macros", "rt", "time"] }
+
+[[example]]
+name = "verify-block"
+required-features = ["http"]

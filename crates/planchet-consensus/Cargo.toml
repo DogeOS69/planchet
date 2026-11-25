@@ -1,0 +1,18 @@
+[package]
+publish.workspace = true
+name = "planchet-consensus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Bounded zero-copy Dogecoin transaction, AuxPoW header and block decoding"
+
+[features]
+default = ["alloc"]
+alloc = ["planchet-primitives/alloc"]
+std = ["alloc", "planchet-primitives/std"]
+pow-scrypt = ["alloc", "dep:scrypt"]
+
+[dependencies]
+planchet-primitives = { path = "../planchet-primitives", default-features = false }
+sha2 = { version = "0.10.9", default-features = false, features = ["force-soft"] }
+scrypt = { version = "0.11.0", optional = true, default-features = false }

@@ -1,0 +1,20 @@
+[package]
+publish.workspace = true
+name = "planchet-psbt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Byte-preserving BIP174 v0 maps and checked offline legacy P2PKH payments"
+
+[features]
+default = ["alloc"]
+alloc = ["planchet-consensus/alloc", "dep:k256"]
+std = ["alloc"]
+
+[dependencies]
+planchet-primitives = { path = "../planchet-primitives", default-features = false }
+planchet-consensus = { path = "../planchet-consensus", default-features = false }
+k256 = { version = "0.13.4", default-features = false, features = ["ecdsa"], optional = true }
+
+[dev-dependencies]
+serde_json = "1.0"

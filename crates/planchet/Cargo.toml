@@ -1,0 +1,27 @@
+[package]
+publish.workspace = true
+name = "planchet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Pure Rust Dogecoin primitives, consensus, RPC, PSBT and signing facade"
+readme = "../../README.md"
+
+[features]
+default = ["alloc"]
+alloc = ["planchet-primitives/alloc", "planchet-consensus/alloc"]
+std = ["alloc", "planchet-primitives/std", "planchet-consensus/std"]
+rpc = ["std", "dep:planchet-rpc-types", "dep:planchet-transport", "dep:planchet-provider"]
+http = ["rpc", "planchet-transport/http", "planchet-provider/http"]
+psbt = ["alloc", "dep:planchet-psbt", "planchet-psbt/alloc", "planchet-signer?/psbt"]
+signer-local = ["alloc", "dep:planchet-signer", "planchet-signer/local"]
+pow-scrypt = ["planchet-consensus/pow-scrypt"]
+
+[dependencies]
+planchet-primitives = { version = "0.1.0", path = "../planchet-primitives", default-features = false }
+planchet-consensus = { version = "0.1.0", path = "../planchet-consensus", default-features = false }
+planchet-rpc-types = { version = "0.1.0", path = "../planchet-rpc-types", default-features = false, optional = true }
+planchet-transport = { version = "0.1.0", path = "../planchet-transport", default-features = false, optional = true }
+planchet-provider = { version = "0.1.0", path = "../planchet-provider", default-features = false, optional = true }
+planchet-psbt = { version = "0.1.0", path = "../planchet-psbt", default-features = false, optional = true }
+planchet-signer = { version = "0.1.0", path = "../planchet-signer", default-features = false, optional = true }

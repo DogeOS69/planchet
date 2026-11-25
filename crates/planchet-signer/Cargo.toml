@@ -1,0 +1,27 @@
+[package]
+publish.workspace = true
+name = "planchet-signer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Prehashed pure Rust secp256k1 signing and explicit legacy signature verification"
+
+[features]
+default = ["local", "psbt"]
+verify = ["dep:k256"]
+local = ["verify", "dep:zeroize"]
+psbt = ["verify", "dep:planchet-psbt"]
+
+[dependencies]
+planchet-primitives = { path = "../planchet-primitives", default-features = false }
+planchet-consensus = { path = "../planchet-consensus", default-features = false, features = ["alloc"] }
+planchet-psbt = { path = "../planchet-psbt", default-features = false, features = ["alloc"], optional = true }
+k256 = { version = "0.13.4", default-features = false, features = ["ecdsa"], optional = true }
+zeroize = { version = "1.8", default-features = false, features = ["alloc"], optional = true }
+
+[dev-dependencies]
+serde_json = "1.0"
+
+[[example]]
+name = "offline-p2pkh"
+required-features = ["local", "psbt"]

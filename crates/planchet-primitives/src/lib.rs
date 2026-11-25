@@ -1,7 +1,11 @@
 //! Dogecoin value types with explicit byte order and units.
 //!
 //! All APIs, including address formatting and decimal parsing, work without an
-//! allocator. Hash IDs display in RPC order; signing digests display in digest order.
+//! allocator with the software hash backend. Optional `openvm-sha256` and
+//! `openvm-keccak256` features select OpenVM on `riscv32` with `target_os = "zkvm"`
+//! and require a guest allocator. Other targets keep portable software hashing.
+//! `keccak` exposes Keccak-256 (distinct from SHA3-256).
+//! Hash IDs display in RPC order; signing digests display in digest order.
 #![no_std]
 #![forbid(unsafe_code)]
 
@@ -15,7 +19,12 @@ pub mod network;
 
 pub use address::{Address, AddressError, AddressKind};
 pub use amount::{Amount, FeeRate, ParseAmountError};
-pub use hash::{BlockHash, Hash160, MerkleRoot, ParseHashError, Sighash, Txid, hash160, sha256d};
+#[cfg(feature = "keccak")]
+pub use hash::keccak256;
+pub use hash::{
+    BlockHash, Hash160, MerkleRoot, ParseHashError, Sighash, Txid, hash160, sha256, sha256d,
+    sha256d_parts,
+};
 pub use network::{ChainParams, Network, ParseNetworkError};
 
 /// A transaction output identified by its wire-order transaction ID and output index.

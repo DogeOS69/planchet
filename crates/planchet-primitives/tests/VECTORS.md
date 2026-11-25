@@ -14,6 +14,18 @@ The tests use fixed expected results, not another path through the implementatio
   `6f00000000000000000000000000000000000000008f62b721`.
 - Empty/`abc` SHA256d and HASH160 expected hex was generated independently using
   Python 3 `hashlib.sha256` and `hashlib.new('ripemd160', ...)`, outside Rust tests.
+- `hashes.rs` checks SHA-256's standard empty/`abc` results and fixed padding
+  vectors for `b'a' * n`, with `n = 55, 56, 63, 64, 65, 119, 120, 128`.
+  Expected SHA-256, SHA256d, and HASH160 hex came from Python `hashlib` outside
+  Rust tests. Split points exercise streamed multipart hashing, and asymmetric
+  `a`/`b`/`c` parts protect concatenation order. Offsets 0 through 3 protect
+  unaligned input support. These catch dropped/reordered parts, incorrect
+  padding, and alignment assumptions across backends.
+- Optional Keccak-256 empty/`abc` and `b'a' * n` results came independently from
+  PyCryptodome `Crypto.Hash.keccak.new(digest_bits=256, data=...)`. Lengths 135,
+  136, 137, 271, 272, and 273 straddle its 136-byte rate and catch SHA3 domain
+  separator substitution and boundary padding mistakes. Expected values are
+  literals; no alternate implementation runs inside the tests.
 - Asymmetric `00..1f` bytes have literal expected text order. Decimal and fee
   expectations use integer place values and hand-calculated upward rounding.
   Decimal compatibility follows the existing DogeOS RPC conversion contract at

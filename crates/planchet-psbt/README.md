@@ -1,5 +1,10 @@
 # planchet-psbt
 
+`openvm-k256` routes SEC1 key validation and mathematical signature verification
+through the shared `planchet-crypto` backend on RISC-V OpenVM guests. Other
+targets use RustCrypto. Strict DER, low-S policy, template checks and atomic
+PSBT updates are preserved.
+
 BIP174 v0 ordered key/value maps and checked offline P2PKH payment operations.
 Rust 2024, workspace MSRV 1.91. The default `alloc` feature enables the API;
 without it the crate is an empty `no_std` shell. `alloc` itself needs no `std`.

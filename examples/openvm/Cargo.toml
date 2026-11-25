@@ -1,0 +1,45 @@
+[package]
+name = "planchet-openvm-verify"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+default-run = "planchet-openvm-verify"
+
+[[bin]]
+name = "planchet-openvm-verify"
+path = "src/main.rs"
+
+[[bin]]
+name = "payment"
+path = "src/bin/payment.rs"
+required-features = ["payment"]
+
+# Intentionally isolated: do not add this guest to Planchet's host workspace.
+[workspace]
+resolver = "3"
+
+[features]
+default = []
+payment = ["planchet/psbt", "planchet/signer"]
+openvm-sha256 = ["planchet/openvm-sha256"]
+openvm-keccak256 = ["planchet/openvm-keccak256"]
+openvm-k256 = ["planchet/openvm-k256"]
+openvm-p256 = ["planchet/openvm-p256"]
+accelerated = ["openvm-sha256", "openvm-keccak256", "openvm-k256", "openvm-p256"]
+
+[dependencies]
+planchet = { path = "../../crates/planchet", default-features = false, features = ["k256", "p256", "keccak"] }
+openvm = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.7.0", default-features = false, features = ["std"] }
+# Public SDK crates used by cargo-openvm's generated openvm_init.rs.
+openvm-algebra-guest = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.7.0", default-features = false }
+openvm-ecc-guest = { git = "https://github.com/openvm-org/openvm.git", tag = "v1.7.0", default-features = false }
+hex-literal = "0.4.1"
+
+[profile.release]
+panic = "abort"
+lto = "thin"
+codegen-units = 1
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("zkvm"))'] }

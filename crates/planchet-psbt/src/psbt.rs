@@ -4,13 +4,14 @@ use alloc::{
     vec::Vec,
 };
 use core::fmt;
-use k256::ecdsa::{Signature, VerifyingKey, signature::hazmat::PrehashVerifier};
+use k256::ecdsa::Signature;
 use planchet_consensus::script::{match_p2pkh, push_data};
 use planchet_consensus::sighash::{SighashError, SighashType, legacy_sighash_for_signing};
 use planchet_consensus::transaction::{
     PaymentBudget, PaymentError, PaymentSummary, Prevout, Transaction, TxOut, encode_compact_size,
 };
 use planchet_consensus::{DecodeError, DecodeLimits, compact_size::decode_compact_size};
+use planchet_crypto::K256VerifyingKey;
 use planchet_primitives::{Sighash, hash160};
 
 const MAGIC: &[u8] = b"psbt\xff";
@@ -203,11 +204,8 @@ enum Context {
     Output,
 }
 
-fn valid_public_key(key: &[u8]) -> Result<VerifyingKey, Error> {
-    if !matches!((key.len(), key.first()), (33, Some(2 | 3)) | (65, Some(4))) {
-        return Err(Error::InvalidPublicKey);
-    }
-    VerifyingKey::from_sec1_bytes(key).map_err(|_| Error::InvalidPublicKey)
+fn valid_public_key(key: &[u8]) -> Result<K256VerifyingKey, Error> {
+    K256VerifyingKey::from_sec1_bytes(key).map_err(|_| Error::InvalidPublicKey)
 }
 
 fn validate_entry(key: &[u8], value: &[u8], context: Context) -> Result<(), Error> {
@@ -711,7 +709,7 @@ fn verify_low_s(public_key: &[u8], der: &[u8], digest: Sighash) -> Result<(), Er
     if signature.normalize_s().is_some() {
         return Err(Error::HighS);
     }
-    key.verify_prehash(digest.as_ref(), &signature)
+    key.verify_prehash(digest.as_wire_bytes(), &signature.to_bytes().into())
         .map_err(|_| Error::InvalidSignature)
 }
 

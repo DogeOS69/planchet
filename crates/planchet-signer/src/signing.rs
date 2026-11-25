@@ -1,11 +1,12 @@
 use alloc::vec::Vec;
 use core::fmt;
-use k256::ecdsa::{Signature, VerifyingKey, signature::hazmat::PrehashVerifier};
+use k256::ecdsa::Signature;
 use planchet_consensus::{
     script::match_p2pkh,
     sighash::{SighashError, SighashType, legacy_sighash_for_signing},
     transaction::{PaymentBudget, PaymentError, Prevout, Transaction},
 };
+use planchet_crypto::K256VerifyingKey;
 use planchet_primitives::{Sighash, hash160};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,23 +42,25 @@ impl From<SighashError> for Error {
 
 /// A validated compressed or uncompressed SEC1 public key, retaining the exact
 /// encoding which commits to the P2PKH HASH160.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct PublicKey {
     bytes: Vec<u8>,
-    key: VerifyingKey,
+    // Keys parsed from SEC1 cache the selected verifier. Locally derived keys
+    // are already validated by RustCrypto and can be decoded on verification.
+    key: Option<K256VerifyingKey>,
 }
+impl PartialEq for PublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+impl Eq for PublicKey {}
 impl PublicKey {
     pub fn from_sec1_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if !matches!(
-            (bytes.len(), bytes.first()),
-            (33, Some(2 | 3)) | (65, Some(4))
-        ) {
-            return Err(Error::InvalidPublicKey);
-        }
-        let key = VerifyingKey::from_sec1_bytes(bytes).map_err(|_| Error::InvalidPublicKey)?;
+        let key = K256VerifyingKey::from_sec1_bytes(bytes).map_err(|_| Error::InvalidPublicKey)?;
         Ok(Self {
             bytes: bytes.into(),
-            key,
+            key: Some(key),
         })
     }
     pub fn as_bytes(&self) -> &[u8] {
@@ -111,10 +114,16 @@ pub fn verify_historical(
         .signature
         .normalize_s()
         .unwrap_or(signature.signature);
-    public_key
-        .key
-        .verify_prehash(digest.as_ref(), &mathematical)
-        .map_err(|_| Error::InvalidSignature)
+    let compact = mathematical.to_bytes().into();
+    match &public_key.key {
+        Some(key) => key.verify_prehash(digest.as_wire_bytes(), &compact),
+        None => planchet_crypto::verify_k256_prehash(
+            public_key.as_bytes(),
+            digest.as_wire_bytes(),
+            &compact,
+        ),
+    }
+    .map_err(|_| Error::InvalidSignature)
 }
 
 /// Current signing policy: strict DER, valid curve scalars and low S.
@@ -256,7 +265,7 @@ impl LocalSigner {
                 .to_encoded_point(self.compressed)
                 .as_bytes()
                 .into(),
-            key: *self.key.verifying_key(),
+            key: None,
         }
     }
 }

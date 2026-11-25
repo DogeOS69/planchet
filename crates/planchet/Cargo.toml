@@ -14,8 +14,19 @@ std = ["alloc", "planchet-primitives/std", "planchet-consensus/std"]
 rpc = ["std", "dep:planchet-rpc-types", "dep:planchet-transport", "dep:planchet-provider"]
 http = ["rpc", "planchet-transport/http", "planchet-provider/http"]
 psbt = ["alloc", "dep:planchet-psbt", "planchet-psbt/alloc", "planchet-signer?/psbt"]
-signer-local = ["alloc", "dep:planchet-signer", "planchet-signer/local"]
+signer = ["alloc", "dep:planchet-signer", "planchet-signer/verify"]
+signer-local = ["signer", "planchet-signer/local"]
 pow-scrypt = ["planchet-consensus/pow-scrypt"]
+
+# Backend opt-ins never enable networking or local private-key signing.
+keccak = ["planchet-primitives/keccak"]
+k256 = ["dep:planchet-crypto", "planchet-crypto/k256"]
+p256 = ["dep:planchet-crypto", "planchet-crypto/p256"]
+openvm-sha256 = ["planchet-primitives/openvm-sha256", "planchet-consensus/openvm-sha256"]
+openvm-keccak256 = ["keccak", "planchet-primitives/openvm-keccak256", "planchet-consensus/openvm-keccak256"]
+openvm-k256 = ["k256", "planchet-crypto/openvm-k256", "planchet-psbt?/openvm-k256", "planchet-signer?/openvm-k256"]
+openvm-p256 = ["p256", "planchet-crypto/openvm-p256"]
+openvm = ["openvm-sha256", "openvm-keccak256", "openvm-k256", "openvm-p256"]
 
 [dependencies]
 planchet-primitives = { version = "0.1.0", path = "../planchet-primitives", default-features = false }
@@ -25,3 +36,4 @@ planchet-transport = { version = "0.1.0", path = "../planchet-transport", defaul
 planchet-provider = { version = "0.1.0", path = "../planchet-provider", default-features = false, optional = true }
 planchet-psbt = { version = "0.1.0", path = "../planchet-psbt", default-features = false, optional = true }
 planchet-signer = { version = "0.1.0", path = "../planchet-signer", default-features = false, optional = true }
+planchet-crypto = { version = "0.1.0", path = "../planchet-crypto", default-features = false, optional = true }

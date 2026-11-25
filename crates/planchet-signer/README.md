@@ -12,6 +12,12 @@ consumer should disable defaults and select `verify` (optionally `psbt`). k256's
 shared `ecdsa` implementation feature includes its backend signing routines;
 the verification profile exposes no `LocalSigner` API or randomness requirement.
 
+`openvm-k256` selects `planchet-crypto`'s upstream OpenVM key decoder and
+verifier on RISC-V OpenVM guests and forwards the option to PSBT when enabled.
+Other targets use RustCrypto. `LocalSigner` always uses RustCrypto's private-key
+implementation, including when verification acceleration is selected; OpenVM's
+unimplemented signing API is never used. DER and low/high-S policy remain here.
+
 `SignRequest::p2pkh` validates the exact template/key, all explicit trusted
 prevouts and payment budget before computing the legacy digest. Its fields are
 private. Alternatively convert an already checked PSBT request with

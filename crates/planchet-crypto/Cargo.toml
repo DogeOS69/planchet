@@ -1,0 +1,31 @@
+[package]
+publish.workspace = true
+name = "planchet-crypto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Pure Rust prehashed ECDSA verification with optional OpenVM acceleration"
+
+[features]
+default = []
+k256 = ["dep:k256"]
+p256 = ["dep:p256"]
+openvm-k256 = ["k256", "dep:openvm-k256"]
+openvm-p256 = ["p256", "dep:openvm-p256"]
+
+[dependencies]
+k256 = { version = "0.13.4", default-features = false, features = ["ecdsa"], optional = true }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa"], optional = true }
+
+[target.'cfg(all(target_os = "zkvm", target_arch = "riscv32"))'.dependencies]
+# Keep the tag source identical to DogeOS. Cargo.lock freezes the tag to
+# 425913bdc743ef44236daf472ec53c2c05b75fa1; use --locked for guest builds.
+openvm-k256 = { package = "k256", git = "https://github.com/openvm-org/openvm.git", tag = "v1.7.0", default-features = false, features = ["ecdsa"], optional = true }
+openvm-p256 = { package = "p256", git = "https://github.com/openvm-org/openvm.git", tag = "v1.7.0", default-features = false, features = ["ecdsa"], optional = true }
+
+[dev-dependencies]
+hex-literal = "0.4.1"
+serde_json = "1.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("zkvm"))'] }

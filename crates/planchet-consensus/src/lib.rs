@@ -3,7 +3,11 @@
 //! All borrowed decoders, iterators, hashes and Merkle checks work without
 //! `std` or `alloc`. `alloc` (default) enables the separately maintained owned
 //! transaction and signing modules; `std` implies `alloc`. Dependencies use
-//! pure Rust implementations, including software SHA-256.
+//! pure Rust implementations. SHA-256 uses portable software unless
+//! `openvm-sha256` selects the OpenVM backend on a `riscv32` zkVM. The guest
+//! backend requires an allocator and joins stripped witness parent transaction
+//! slices before hashing; other borrowed decoding and iteration stay unchanged.
+//! `keccak` and `openvm-keccak256` forward primitives' optional Keccak features.
 //!
 //! Decoding establishes wire structure and resource bounds, not script validity,
 //! difficulty, parent-chain commitments, or complete AuxPoW/chain consensus.

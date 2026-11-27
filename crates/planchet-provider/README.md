@@ -121,5 +121,15 @@ amount expectations use fixed decimal-place integer values. Offline cases reject
 trailing/truncated bytes, wrong IDs, and corrupt Merkle roots. Wallet coverage is
 in `tests/wallet.rs`; its live isolated-regtest test is opt-in and ignored by the
 ordinary suite. This is behavioral coverage, not a measured line/branch percentage.
+
+CI runs `python3 scripts/test-provider-wallet-regtest.py` from the workspace root
+in the existing Linux job, using a disposable official Core 1.14.9 node at genesis
+(no mining). It requires exactly one passing live test and cleans up its node.
+Against your own isolated regtest node, set
+`PLANCHET_WALLET_RPC_URL`, `PLANCHET_WALLET_RPC_USER`, and
+`PLANCHET_WALLET_RPC_PASSWORD`, then run
+`cargo +1.91.0 test --locked -p planchet-provider --features http --test wallet isolated_regtest_watch_import_read_and_rescan -- --exact --ignored`.
+This imports watch addresses and rescans that wallet.
+
 The parent also reported successful live read-only checks on Core 1.14.9 regtest
 heights 0, 105, 106 (AuxPoW), and 107 plus invalid/unknown UTXO observations.

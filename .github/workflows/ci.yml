@@ -24,6 +24,10 @@ jobs:
       - name: Test workspace with all features
         run: cargo +1.91.0 test --locked --workspace --all-features
 
+      - name: Test isolated Core 1.14.9 watch wallet
+        timeout-minutes: 15
+        run: python3 scripts/test-provider-wallet-regtest.py
+
       - name: Test facade without default features
         run: cargo +1.91.0 test --locked -p planchet --no-default-features
 

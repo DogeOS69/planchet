@@ -27,9 +27,11 @@ and `is_empty()`. The provider selects the decoder from the requested mode;
 `Block::deserialize_full` decodes full transactions. Empty arrays retain their
 requested variant. There is no shape-guessing `Deserialize` for `Block`.
 
-`BlockTransaction` exposes `txid: Txid`, Core-reported `hash: Wtxid`,
+`BlockTransaction`, shared by full blocks and standalone lookups, exposes
+`txid: Txid`, Core-reported `hash: Wtxid`,
 `size`, `vsize`, optional `weight`, `version`, `locktime`, ordered `vin`/`vout`,
-and optional `hex`. Outputs reuse `TransactionOutput` and `RpcAmount`.
+and optional `hex` of Core-supplied serialized bytes, with no local reconstruction.
+Outputs reuse `TransactionOutput` and `RpcAmount`.
 `TransactionInput` has `kind`, `sequence`, optional `script_sig: ScriptSig`
 (`asm`, `hex`), and optional `txinwitness: Vec<String>`. Its kind is
 `TransactionInputKind::Coinbase { coinbase }` or `Spend { txid: Txid, vout: u32 }`.
@@ -38,6 +40,16 @@ fields are rejected. Core reports `hash` using `GetWitnessHash`; its bytes equal
 `txid` for transactions without witness data. The fields remain independent;
 neither is recomputed from optional hex. The synthetic DTO test deliberately uses
 different IDs to check that both reported values are preserved.
+
+`TransactionResponse` wraps the same complete `BlockTransaction` in its public
+`transaction` field, alongside optional `blockhash: Option<BlockHash>`,
+`confirmations: Option<i64>`, `time: Option<u64>` and `blocktime: Option<u64>`.
+Its two-view decoder reads transaction and metadata from the original `RawValue`,
+preserving exact output amount tokens without serde flatten. Missing or null
+metadata stays `None`; signed confirmations are retained as reported. Metadata
+does not guarantee active-chain inclusion or finality. Core lookup error `-5`
+can reflect unavailable data or missing txindex, so it is not proof of absence.
+The lightweight `TransactionInfo` contract remains separate and unchanged.
 
 The three number tests cover exact source-token round trips, scientific notation,
 values beyond f64 integer precision, 1 koinu, u64::MAX and overflow, strict excess

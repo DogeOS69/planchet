@@ -248,6 +248,46 @@ impl<T: Transport> Provider<T> {
         }
         Ok(bytes)
     }
+    /// Looks up a full transaction with one `getrawtransaction(txid, true)` call.
+    ///
+    /// Follows [Alloy's lookup API](https://docs.rs/alloy-provider/2.6.1/alloy_provider/trait.Provider.html#method.get_transaction_by_hash),
+    /// retaining Core errors instead of converting them to absence. In particular,
+    /// `-5` can mean unavailable transaction data or missing txindex; it is not proof
+    /// of absence. No retries or additional calls are made. Inclusion metadata is
+    /// optional and does not establish active-chain inclusion or finality.
+    /// `transaction.hex` optionally contains Core-supplied serialized bytes in hex;
+    /// no local reconstruction is performed.
+    ///
+    /// ```no_run
+    /// use planchet_provider::{Error, Provider, transport::Transport, types::TransactionResponse};
+    /// use planchet_primitives::Txid;
+    ///
+    /// async fn lookup<T: Transport>(
+    ///     provider: &Provider<T>, txid: Txid,
+    /// ) -> Result<TransactionResponse, Error> {
+    ///     let response = provider.get_transaction_by_hash(txid).await?;
+    ///     assert_eq!(response.transaction.txid, txid);
+    ///     // None means Core did not report a confirmation count.
+    ///     let _confirmations: Option<i64> = response.confirmations;
+    ///     Ok(response)
+    /// }
+    /// ```
+    pub async fn get_transaction_by_hash(
+        &self,
+        txid: Txid,
+    ) -> Result<types::TransactionResponse, Error> {
+        let response: types::TransactionResponse = self
+            .client
+            .call("getrawtransaction", (txid.to_string(), true))
+            .await?;
+        if response.transaction.txid != txid {
+            return Err(Error::InvalidResponse {
+                method: "getrawtransaction".into(),
+                reason: "returned DTO has a different txid",
+            });
+        }
+        Ok(response)
+    }
     pub async fn transaction_info(&self, txid: Txid) -> Result<types::TransactionInfo, Error> {
         let info: types::TransactionInfo = self
             .client

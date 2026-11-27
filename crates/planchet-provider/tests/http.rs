@@ -59,6 +59,120 @@ fn block_hashes() -> String {
     block_with_tx(&format!(r#"["{COINBASE}","{PAYMENT}"]"#))
 }
 
+fn lookup_transactions() -> Vec<Box<serde_json::value::RawValue>> {
+    #[derive(serde::Deserialize)]
+    struct Transactions {
+        tx: Vec<Box<serde_json::value::RawValue>>,
+    }
+    serde_json::from_str::<Transactions>(FULL_BLOCK).unwrap().tx
+}
+
+#[tokio::test]
+async fn transaction_lookup_preserves_full_transactions_and_optional_metadata() {
+    let transactions = lookup_transactions();
+    // Synthetic hex checks Core-supplied field preservation, not wire validity or txid.
+    let confirmed = format!(
+        r#"{},"hex":"0102","blockhash":"{FULL_HASH}","confirmations":6,"time":1795769317,"blocktime":1795769317}}"#,
+        transactions[0].get().trim_end().strip_suffix('}').unwrap()
+    );
+    // Synthetic tokens exercise precision beyond f64 and exponent preservation.
+    let mempool = transactions[1]
+        .get()
+        .replace("2.75000000", "90071992.54740993")
+        .replace("10.49774000", "1e-8");
+    let server = Server::start(vec![
+        Step::result("getrawtransaction", json!([COINBASE, true]), &confirmed),
+        Step::result("getrawtransaction", json!([PAYMENT, true]), &mempool),
+    ]);
+    let p = Provider::new(transport(&server));
+    let confirmed = p
+        .get_transaction_by_hash(COINBASE.parse().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(confirmed.blockhash, Some(FULL_HASH.parse().unwrap()));
+    assert_eq!(confirmed.confirmations, Some(6));
+    assert_eq!(confirmed.time, Some(1795769317));
+    assert_eq!(confirmed.blocktime, Some(1795769317));
+    let tx = confirmed.transaction;
+    assert_eq!(tx.hex.as_deref(), Some("0102"));
+    assert!(
+        matches!(&tx.vin[0].kind, TransactionInputKind::Coinbase { coinbase } if coinbase == "01730101")
+    );
+    assert_eq!(tx.vout[0].value.source_text(), "500000.00226000");
+
+    let mempool = p
+        .get_transaction_by_hash(PAYMENT.parse().unwrap())
+        .await
+        .unwrap();
+    assert!(mempool.blockhash.is_none());
+    assert_eq!(
+        (mempool.confirmations, mempool.time, mempool.blocktime),
+        (None, None, None)
+    );
+    let tx = mempool.transaction;
+    assert!(tx.hex.is_none());
+    assert!(
+        matches!(tx.vin[0].kind, TransactionInputKind::Spend { txid, vout: 1 } if txid.to_string() == "97fadce49693712ba823ee726dab962e1fc192c841411b8dd21611ea24ff746e")
+    );
+    assert_eq!(tx.vin[0].sequence, u32::MAX - 1);
+    assert!(tx.vin[0].script_sig.as_ref().unwrap().asm.contains("[ALL]"));
+    assert_eq!((tx.vout[0].n, tx.vout[1].n), (0, 1));
+    assert_eq!(tx.vout[0].value.source_text(), "90071992.54740993");
+    assert_eq!(tx.vout[0].value.koinu(), 9_007_199_254_740_993);
+    assert_eq!(tx.vout[1].value.source_text(), "1e-8");
+    assert_eq!(tx.vout[1].value.koinu(), 1);
+    assert_eq!(server.finish().len(), 2);
+}
+
+#[tokio::test]
+async fn transaction_lookup_rejects_a_different_txid() {
+    let transactions = lookup_transactions();
+    let server = Server::start(vec![Step::result(
+        "getrawtransaction",
+        json!([PAYMENT, true]),
+        transactions[0].get(),
+    )]);
+    assert!(matches!(
+        Provider::new(transport(&server)).get_transaction_by_hash(PAYMENT.parse().unwrap()).await,
+        Err(Error::InvalidResponse { method, reason: "returned DTO has a different txid" })
+            if method == "getrawtransaction"
+    ));
+    assert_eq!(server.finish().len(), 1);
+}
+
+#[tokio::test]
+async fn transaction_lookup_retains_core_unavailable_error() {
+    let message =
+        "No such mempool transaction. Use -txindex to enable blockchain transaction queries.";
+    let server = Server::start(vec![Step::body(
+        "getrawtransaction",
+        json!([PAYMENT, true]),
+        500,
+        &format!(
+            r#"{{"result":null,"error":{{"code":-5,"message":"{message}","data":{{"amount":1.00000000}}}},"id":$ID}}"#
+        ),
+    )]);
+    match Provider::new(transport(&server))
+        .get_transaction_by_hash(PAYMENT.parse().unwrap())
+        .await
+    {
+        Err(Error::Rpc {
+            method,
+            code,
+            message: actual,
+            data,
+            status,
+        }) => {
+            assert_eq!(method, "getrawtransaction");
+            assert_eq!((code, status), (-5, 500));
+            assert_eq!(actual, message);
+            assert_eq!(data.unwrap().get(), r#"{"amount":1.00000000}"#);
+        }
+        other => panic!("expected unchanged Core error, got {other:?}"),
+    }
+    assert_eq!(server.finish().len(), 1);
+}
+
 #[tokio::test]
 async fn block_selectors_resolve_height_full_and_latest_hashes_lazily() {
     let hashes = block_hashes();

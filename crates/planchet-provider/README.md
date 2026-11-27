@@ -54,6 +54,18 @@ parsed directly, without an intermediate floating-point JSON value.
   chain tips, raw block, hashes/full verbose block, raw/base/verbose headers.
 - Transactions/mempool: raw/verbose transaction, decoderawtransaction,
   raw mempool txids, mempool info/entry, nullable gettxout.
+- `get_transaction_by_hash(txid).await`: one `getrawtransaction(txid, true)` call,
+  returning `types::TransactionResponse` after checking the requested txid.
+  Its public `transaction: BlockTransaction` includes full ordered inputs/outputs,
+  Core's `Wtxid`, size fields and optional hex of Core-supplied serialized bytes;
+  no local reconstruction is performed. `blockhash`, signed `confirmations`,
+  `time` and `blocktime` are optional observations, not guarantees of active-chain
+  inclusion or finality. All Core errors are retained, including `-5`: unavailable
+  data or missing txindex is not proof of absence. There are no retries or extra
+  calls. The name follows [Alloy's lookup API](https://docs.rs/alloy-provider/2.6.1/alloy_provider/trait.Provider.html#method.get_transaction_by_hash),
+  adapted to Core error semantics rather than an optional absence result.
+  Existing `transaction_info`, `decode_transaction`, `raw_transaction` and their
+  lightweight callers keep their contracts.
 - `utxo_status`: Unspent / Spent / Unknown, selected confirmed-only or mempool
   view, and a best-tip bracket. Null requires a known parent and valid output
   index before any spend inference. Confirmed parents require positive active

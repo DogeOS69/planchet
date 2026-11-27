@@ -1,5 +1,5 @@
 use crate::{
-    BlockCheck, Client, Error, check_raw_block,
+    BlockCheck, BlockId, Client, Error, check_raw_block,
     types::{self, BlockVerbosity, RpcBlockHash, RpcTxid},
 };
 use planchet_consensus::{BaseHeader, DecodeLimits, WireHeader};
@@ -96,6 +96,41 @@ impl<T: Transport> Provider<T> {
         Ok(info)
     }
     /// Builds a lazy block read, returning transaction hashes by default.
+    /// Use `.full()` for full transactions or `.hashes()` to restore the default.
+    ///
+    /// Hash selectors send one `getblock` RPC. Height and latest selectors first
+    /// resolve a hash with `getblockhash` or `getbestblockhash`, then fetch that
+    /// hash with `getblock`. These two RPCs observe the resolved hash even if a
+    /// reorg occurs afterwards; the returned block may be stale. No extra tip
+    /// read or automatic retry is performed. For a stronger bracketed raw check,
+    /// use [`Self::check_block_at_height`]. Height selectors also validate the
+    /// returned header's height, and all selectors validate its hash.
+    ///
+    /// Legacy boolean mode rejects `.full()` locally before any lookup RPC.
+    ///
+    /// ```
+    /// use planchet_provider::{BlockId, Error, Provider, transport::Transport};
+    ///
+    /// async fn read<T: Transport>(provider: &Provider<T>) -> Result<(), Error> {
+    ///     let latest = provider.get_block(BlockId::Latest).await?;
+    ///     let full = provider.get_block_by_height(106).full().await?;
+    ///     assert!(latest.transactions.as_hashes().is_some());
+    ///     assert!(full.transactions.as_transactions().is_some());
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn get_block(&self, id: BlockId) -> GetBlock<'_, T> {
+        GetBlock {
+            provider: self,
+            id,
+            full: false,
+        }
+    }
+    /// Builds a lazy height read. See [`Self::get_block`] for reorg semantics.
+    pub fn get_block_by_height(&self, height: u64) -> GetBlock<'_, T> {
+        self.get_block(BlockId::Height(height))
+    }
+    /// Builds a lazy block read, returning transaction hashes by default.
     /// Use `.full().await` for full transactions, or `.hashes()` to restore the default.
     /// In [`BlockVerbosity::LegacyBoolean`] mode, awaiting `.full()` returns
     /// [`Error::UnsupportedBlockVerbosity`] locally without sending an RPC.
@@ -115,11 +150,7 @@ impl<T: Transport> Provider<T> {
     /// }
     /// ```
     pub fn get_block_by_hash(&self, hash: BlockHash) -> GetBlock<'_, T> {
-        GetBlock {
-            provider: self,
-            hash,
-            full: false,
-        }
+        self.get_block(BlockId::Hash(hash))
     }
     /// Complete serialized native/AuxPoW wire header, with exact decoding and ID checking.
     /// Some Core builds return only the 80-byte base for AuxPoW. That incomplete response
@@ -344,7 +375,7 @@ impl<T: Transport> Provider<T> {
 #[must_use = "block requests do nothing until awaited"]
 pub struct GetBlock<'a, T> {
     provider: &'a Provider<T>,
-    hash: BlockHash,
+    id: BlockId,
     full: bool,
 }
 impl<T> GetBlock<'_, T> {
@@ -367,27 +398,42 @@ impl<'a, T: Transport> IntoFuture for GetBlock<'a, T> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            if !self.full {
-                // Preserve the existing numeric/boolean wire contract and typed decoder.
-                return self.provider.block_info(self.hash).await.map(Into::into);
-            }
-            if self.provider.verbosity == BlockVerbosity::LegacyBoolean {
+            if self.full && self.provider.verbosity == BlockVerbosity::LegacyBoolean {
                 return Err(Error::UnsupportedBlockVerbosity {
                     verbosity: 2,
                     mode: self.provider.verbosity,
                 });
             }
-            // The request selects the decoder; never infer a mode from the first tx.
-            #[derive(Deserialize)]
-            struct FullBlock(
-                #[serde(deserialize_with = "types::Block::deserialize_full")] types::Block,
-            );
-            let FullBlock(block) = self
-                .provider
-                .client
-                .call("getblock", (self.hash.to_string(), 2))
-                .await?;
-            ensure_hash(self.hash, block.header.hash)?;
+            let hash = match self.id {
+                BlockId::Hash(hash) => hash,
+                BlockId::Height(height) => self.provider.block_hash(height).await?,
+                BlockId::Latest => self.provider.best_block_hash().await?,
+            };
+            let block = if !self.full {
+                // Preserve the existing numeric/boolean wire contract and typed decoder.
+                self.provider.block_info(hash).await?.into()
+            } else {
+                // The request selects the decoder; never infer a mode from the first tx.
+                #[derive(Deserialize)]
+                struct FullBlock(
+                    #[serde(deserialize_with = "types::Block::deserialize_full")] types::Block,
+                );
+                let FullBlock(block) = self
+                    .provider
+                    .client
+                    .call("getblock", (hash.to_string(), 2))
+                    .await?;
+                ensure_hash(hash, block.header.hash)?;
+                block
+            };
+            if let BlockId::Height(height) = self.id
+                && block.header.height != height
+            {
+                return Err(Error::InvalidResponse {
+                    method: "getblock".into(),
+                    reason: "returned block has a different height",
+                });
+            }
             Ok(block)
         })
     }

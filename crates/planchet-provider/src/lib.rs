@@ -11,6 +11,7 @@ pub use planchet_transport as transport;
 pub use provider::{GetBlock, Provider, UtxoObservation, UtxoStatus, UtxoUnknown};
 use serde_json::value::RawValue;
 use std::fmt;
+pub use types::BlockId;
 pub use verify::{BlockCheck, check_raw_block};
 pub use wallet::{SnapshotLimits, UnspentSnapshot};
 

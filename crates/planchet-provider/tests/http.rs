@@ -2,7 +2,7 @@
 mod support;
 use planchet_primitives::{Network, OutPoint};
 use planchet_provider::{
-    Client, ClientConfig, Error, Provider, UtxoStatus, UtxoUnknown,
+    BlockId, Client, ClientConfig, Error, Provider, UtxoStatus, UtxoUnknown,
     transport::{BasicAuth, Error as TransportError, HttpConfig, HttpTransport},
     types::{BlockTransactions, BlockVerbosity, SpendView, TransactionInputKind},
 };
@@ -57,6 +57,71 @@ fn block_with_tx(tx: &str) -> String {
 }
 fn block_hashes() -> String {
     block_with_tx(&format!(r#"["{COINBASE}","{PAYMENT}"]"#))
+}
+
+#[tokio::test]
+async fn block_selectors_resolve_height_full_and_latest_hashes_lazily() {
+    let hashes = block_hashes();
+    let server = Server::start(vec![
+        Step::result("getblockhash", json!([115]), &quote(FULL_HASH)),
+        Step::result("getblock", json!([FULL_HASH, 2]), FULL_BLOCK),
+        Step::result("getbestblockhash", json!([]), &quote(FULL_HASH)),
+        Step::result("getblock", json!([FULL_HASH, 1]), &hashes),
+    ]);
+    let p = Provider::new(transport(&server));
+    // Unpolled selectors must leave the expected lookup/fetch sequence untouched.
+    drop(p.get_block_by_height(115).full().into_future());
+    drop(p.get_block(BlockId::Latest).into_future());
+    let full = p.get_block_by_height(115).full().await.unwrap();
+    assert_eq!(full.header.height, 115);
+    assert_eq!(full.header.hash.to_string(), FULL_HASH);
+    assert!(full.transactions.as_transactions().is_some());
+    let latest = p.get_block(BlockId::Latest).await.unwrap();
+    assert_eq!(latest.header.hash.to_string(), FULL_HASH);
+    assert!(latest.transactions.as_hashes().is_some());
+    assert_eq!(server.finish().len(), 4);
+}
+
+#[tokio::test]
+async fn block_selectors_preflight_stop_on_lookup_error_and_check_height() {
+    let server = Server::start(vec![
+        Step::body(
+            "getblockhash",
+            json!([116]),
+            500,
+            r#"{"result":null,"error":{"code":-8,"message":"height out of range"},"id":$ID}"#,
+        ),
+        Step::result("getblockhash", json!([116]), &quote(FULL_HASH)),
+        Step::result("getblock", json!([FULL_HASH, 2]), FULL_BLOCK),
+        Step::result("getblockhash", json!([116]), &quote(FULL_HASH)),
+        Step::result("getblock", json!([FULL_HASH, 1]), &block_hashes()),
+    ]);
+    let p = Provider::new(transport(&server));
+    let legacy = p
+        .clone()
+        .with_block_verbosity(BlockVerbosity::LegacyBoolean);
+    assert!(matches!(
+        legacy.get_block_by_height(116).full().await,
+        Err(Error::UnsupportedBlockVerbosity { .. })
+    ));
+    assert!(matches!(
+        legacy.get_block(BlockId::Latest).full().await,
+        Err(Error::UnsupportedBlockVerbosity { .. })
+    ));
+    assert!(matches!(
+        p.get_block_by_height(116).full().await,
+        Err(Error::Rpc { method, code: -8, .. }) if method == "getblockhash"
+    ));
+    // The resolved hash matches, but the returned header says height 115.
+    assert!(matches!(
+        p.get_block_by_height(116).full().await,
+        Err(Error::InvalidResponse { method, .. }) if method == "getblock"
+    ));
+    assert!(matches!(
+        p.get_block_by_height(116).await,
+        Err(Error::InvalidResponse { method, .. }) if method == "getblock"
+    ));
+    assert_eq!(server.finish().len(), 5);
 }
 
 #[tokio::test]

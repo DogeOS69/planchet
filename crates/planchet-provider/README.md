@@ -69,18 +69,31 @@ parsed directly, without an intermediate floating-point JSON value.
   only when explicitly called. Wallet tests and DTOs are maintained separately.
 
 The block reader follows Alloy's single-entry request builder and transaction
-representation patterns: [Provider::get_block_by_hash](https://docs.rs/alloy-provider/2.6.1/alloy_provider/trait.Provider.html#method.get_block_by_hash)
+representation patterns: [Provider::get_block](https://docs.rs/alloy-provider/2.6.1/alloy_provider/trait.Provider.html#method.get_block),
+[Provider::get_block_by_hash](https://docs.rs/alloy-provider/2.6.1/alloy_provider/trait.Provider.html#method.get_block_by_hash)
 and [BlockTransactions](https://docs.rs/alloy-network-primitives/2.6.1/alloy_network_primitives/enum.BlockTransactions.html).
 It uses Dogecoin Core RPC and UTXO DTOs without an Alloy dependency:
 
 ```rust
+use planchet_provider::BlockId;
+
+let latest = provider.get_block(BlockId::Latest).await?;
+let at_height = provider.get_block_by_height(106).full().await?;
 let block = provider.get_block_by_hash(hash).await?; // getblock(hash, 1)
 let full = provider.get_block_by_hash(hash).full().await?; // getblock(hash, 2)
 let reset = provider.get_block_by_hash(hash).full().hashes().await?;
 ```
 
 `GetBlock` is a lazy, Send `IntoFuture`; building, changing modes, or dropping an
-unpolled request sends nothing. Awaiting sends once through the same Client.
+unpolled request sends nothing. Hash selectors send one RPC through the same
+Client. `BlockId::Height(height)` (also `get_block_by_height(height)`) resolves
+with `getblockhash(height)`; `BlockId::Latest` resolves with `getbestblockhash()`.
+Each then fetches the resolved hash with `getblock`, for two RPCs total. These
+reads observe that resolved hash even if the chain reorgs afterwards, so the
+returned block may be stale. There is no extra tip read or automatic retry;
+lookup and fetch errors propagate unchanged. Callers needing a stronger
+bracketed raw block check can use `check_block_at_height(height)`.
+Height selectors also verify that the returned header height matches the request.
 Both modes return `types::Block { header, size, transactions }`. The request
 selects `BlockTransactions::Hashes` or `Full`, including for empty arrays;
 responses in the wrong mode fail decoding. Both modes check the returned block
@@ -95,7 +108,8 @@ that narrower observation. For nodes exposing only the base through
 header. No fallback RPC is automatically replayed. Legacy boolean `getblock`
 verbosity is explicit `with_block_verbosity(BlockVerbosity::LegacyBoolean)`.
 Hashes then use `true`; full transactions fail locally with
-`Error::UnsupportedBlockVerbosity` and send no RPC. No mode automatically retries.
+`Error::UnsupportedBlockVerbosity` before any hash lookup and send no RPC.
+No mode automatically retries.
 
 Best-tip bracketing is an observation, not an atomic node snapshot. It cannot
 exclude a tip changing away and back, or a mempool change within a stable tip.

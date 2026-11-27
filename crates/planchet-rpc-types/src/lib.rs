@@ -9,6 +9,18 @@ pub use number::{AmountError, JsonNumber, RpcAmount};
 use planchet_primitives::{BlockHash, MerkleRoot, Txid, Wtxid};
 use serde::{Deserialize, Serialize};
 
+/// Selects a block by hash, active-chain height, or the latest observed tip.
+/// A resolved block can become stale.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockId {
+    /// A fixed block hash.
+    Hash(BlockHash),
+    /// An active-chain height resolved with `getblockhash` when awaited.
+    Height(u64),
+    /// The tip resolved with `getbestblockhash` when awaited.
+    Latest,
+}
+
 /// Serde at the RPC boundary uses the primitives' canonical display/parser contract.
 pub mod hash {
     use super::*;

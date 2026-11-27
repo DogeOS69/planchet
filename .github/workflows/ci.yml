@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust 1.91.0 and targets
+        run: >-
+          rustup toolchain install 1.91.0 --profile minimal
+          --target riscv32imac-unknown-none-elf,wasm32-unknown-unknown
+
+      - name: Test workspace with all features
+        run: cargo +1.91.0 test --locked --workspace --all-features
+
+      - name: Test facade without default features
+        run: cargo +1.91.0 test --locked -p planchet --no-default-features
+
+      - name: Test SHA-only crypto provider
+        run: cargo +1.91.0 test --locked -p planchet --no-default-features --features crypto-backend
+
+      - name: Test verification with and without crypto backend
+        shell: bash
+        run: |
+          payment_test=ordinary_signer_and_psbt_preserve_payment_and_software_policy
+          for features in psbt,signer psbt,signer,crypto-backend; do
+            # Fail if feature gating removes the frozen payment test.
+            cargo +1.91.0 test --locked -p planchet --no-default-features \
+              --features "$features" --test provider_payment -- --list \
+              | grep -Fx "$payment_test: test"
+            cargo +1.91.0 test --locked -p planchet --no-default-features \
+              --features "$features"
+          done
+
+      - name: Check dependency policy and consumer profiles
+        run: python3 scripts/check-dependency-policy.py --toolchain 1.91.0 --check-profiles
+
+      - name: Check bare-target dependency policy
+        run: >-
+          python3 scripts/check-dependency-policy.py --toolchain 1.91.0
+          --no-default-features --target riscv32imac-unknown-none-elf
+
+      - name: Test dependency policy
+        run: python3 -m unittest discover -s scripts/tests -v
+
+      - name: Check no-default facade on RISC-V
+        run: >-
+          cargo +1.91.0 check --locked -p planchet --no-default-features
+          --target riscv32imac-unknown-none-elf
+
+      - name: Check verification-only signer on WASM
+        run: >-
+          cargo +1.91.0 check --locked -p planchet-signer --no-default-features
+          --features verify,psbt,crypto-backend --target wasm32-unknown-unknown

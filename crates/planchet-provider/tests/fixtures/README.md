@@ -16,6 +16,14 @@ provider/transport code. Generated during qualification with **Dogecoin Core
 fixture provenance records these RPC identities and the independent Core/Python
 hash expectations.
 
+`regtest-115-verbose.json` is the complete, unmodified Dogecoin Core **1.14.9**
+response for the regtest AuxPoW block at height **115**, block hash
+`47ea9ba351b01055d60266eeccefa10f38be653b82d186a3c087366a038eed18`, obtained with
+`getblock 47ea9ba351b01055d60266eeccefa10f38be653b82d186a3c087366a038eed18 2`.
+It includes the child coinbase and payment transactions, difficulty, chainwork,
+and AuxPoW fields. Child transactions omit hex and weight. Original decimal
+tokens are retained verbatim.
+
 No Core implementation code is copied here. Dogecoin Core source retains its MIT
 license; the project release license for newly written tests and fake-server
 code remains pending.

@@ -5,6 +5,8 @@ use crate::{
 use planchet_consensus::{BaseHeader, DecodeLimits, WireHeader};
 use planchet_primitives::{BlockHash, Network, OutPoint, Txid, sha256d};
 use planchet_transport::Transport;
+use serde::Deserialize;
+use std::{future::IntoFuture, pin::Pin};
 
 #[derive(Clone, Debug)]
 pub struct Provider<T> {
@@ -92,6 +94,32 @@ impl<T: Transport> Provider<T> {
         };
         ensure_hash(hash, info.header.hash)?;
         Ok(info)
+    }
+    /// Builds a lazy block read, returning transaction hashes by default.
+    /// Use `.full().await` for full transactions, or `.hashes()` to restore the default.
+    /// In [`BlockVerbosity::LegacyBoolean`] mode, awaiting `.full()` returns
+    /// [`Error::UnsupportedBlockVerbosity`] locally without sending an RPC.
+    ///
+    /// ```
+    /// use planchet_primitives::BlockHash;
+    /// use planchet_provider::{Error, Provider, transport::Transport};
+    ///
+    /// async fn read<T: Transport>(provider: &Provider<T>, hash: BlockHash) -> Result<(), Error> {
+    ///     let block = provider.get_block_by_hash(hash).await?; // verbosity 1
+    ///     assert!(block.transactions.as_hashes().is_some());
+    ///     let full = provider.get_block_by_hash(hash).full().await?; // verbosity 2
+    ///     assert!(full.transactions.as_transactions().is_some());
+    ///     let reset = provider.get_block_by_hash(hash).full().hashes().await?;
+    ///     assert!(reset.transactions.as_hashes().is_some());
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn get_block_by_hash(&self, hash: BlockHash) -> GetBlock<'_, T> {
+        GetBlock {
+            provider: self,
+            hash,
+            full: false,
+        }
     }
     /// Complete serialized native/AuxPoW wire header, with exact decoding and ID checking.
     /// Some Core builds return only the 80-byte base for AuxPoW. That incomplete response
@@ -310,6 +338,61 @@ impl<T: Transport> Provider<T> {
         }
     }
 }
+
+/// A lazy `getblock` request. Construction and mode changes do not send RPCs.
+#[derive(Debug)]
+#[must_use = "block requests do nothing until awaited"]
+pub struct GetBlock<'a, T> {
+    provider: &'a Provider<T>,
+    hash: BlockHash,
+    full: bool,
+}
+impl<T> GetBlock<'_, T> {
+    /// Request full transaction observations (`getblock(hash, 2)`).
+    /// In [`BlockVerbosity::LegacyBoolean`] mode, awaiting this request returns
+    /// [`Error::UnsupportedBlockVerbosity`] locally without sending an RPC.
+    pub fn full(mut self) -> Self {
+        self.full = true;
+        self
+    }
+    /// Request transaction hashes (numeric verbosity 1, or legacy boolean true).
+    pub fn hashes(mut self) -> Self {
+        self.full = false;
+        self
+    }
+}
+impl<'a, T: Transport> IntoFuture for GetBlock<'a, T> {
+    type Output = Result<types::Block, Error>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            if !self.full {
+                // Preserve the existing numeric/boolean wire contract and typed decoder.
+                return self.provider.block_info(self.hash).await.map(Into::into);
+            }
+            if self.provider.verbosity == BlockVerbosity::LegacyBoolean {
+                return Err(Error::UnsupportedBlockVerbosity {
+                    verbosity: 2,
+                    mode: self.provider.verbosity,
+                });
+            }
+            // The request selects the decoder; never infer a mode from the first tx.
+            #[derive(Deserialize)]
+            struct FullBlock(
+                #[serde(deserialize_with = "types::Block::deserialize_full")] types::Block,
+            );
+            let FullBlock(block) = self
+                .provider
+                .client
+                .call("getblock", (self.hash.to_string(), 2))
+                .await?;
+            ensure_hash(self.hash, block.header.hash)?;
+            Ok(block)
+        })
+    }
+}
+
 fn ensure_hash(expected: BlockHash, actual: BlockHash) -> Result<(), Error> {
     if expected != actual {
         Err(Error::HashMismatch { expected, actual })

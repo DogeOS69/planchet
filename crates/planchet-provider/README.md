@@ -51,7 +51,7 @@ parsed directly, without an intermediate floating-point JSON value.
 `Provider<T>` exposes:
 
 - Chain reads: blockchain/network info, block count, best hash, height-to-hash,
-  chain tips, raw block, txid-only verbose block, raw/base/verbose headers.
+  chain tips, raw block, hashes/full verbose block, raw/base/verbose headers.
 - Transactions/mempool: raw/verbose transaction, decoderawtransaction,
   raw mempool txids, mempool info/entry, nullable gettxout.
 - `utxo_status`: Unspent / Spent / Unknown, selected confirmed-only or mempool
@@ -68,13 +68,34 @@ parsed directly, without an intermediate floating-point JSON value.
   capped `listunspent` and ordered per-request `importmulti` results. They mutate
   only when explicitly called. Wallet tests and DTOs are maintained separately.
 
-`block_info` never constructs a serialized transaction/block from incomplete
+The block reader follows Alloy's single-entry request builder and transaction
+representation patterns: [Provider::get_block_by_hash](https://docs.rs/alloy-provider/2.6.1/alloy_provider/trait.Provider.html#method.get_block_by_hash)
+and [BlockTransactions](https://docs.rs/alloy-network-primitives/2.6.1/alloy_network_primitives/enum.BlockTransactions.html).
+It uses Dogecoin Core RPC and UTXO DTOs without an Alloy dependency:
+
+```rust
+let block = provider.get_block_by_hash(hash).await?; // getblock(hash, 1)
+let full = provider.get_block_by_hash(hash).full().await?; // getblock(hash, 2)
+let reset = provider.get_block_by_hash(hash).full().hashes().await?;
+```
+
+`GetBlock` is a lazy, Send `IntoFuture`; building, changing modes, or dropping an
+unpolled request sends nothing. Awaiting sends once through the same Client.
+Both modes return `types::Block { header, size, transactions }`. The request
+selects `BlockTransactions::Hashes` or `Full`, including for empty arrays;
+responses in the wrong mode fail decoding. Both modes check the returned block
+hash. `block_info` retains its existing signature and `header`, `size`, `tx`
+fields, sharing the default builder's execution and decoding path.
+
+Verbose reads never construct a serialized transaction/block from incomplete
 verbose JSON. `raw_block_header` exact-decodes a complete native/AuxPoW
 `WireHeader`; an 80-byte AuxPoW base is rejected. `base_block_header` supports
 that narrower observation. For nodes exposing only the base through
 `getblockheader(false)`, callers can explicitly fetch `raw_block` for the complete
 header. No fallback RPC is automatically replayed. Legacy boolean `getblock`
 verbosity is explicit `with_block_verbosity(BlockVerbosity::LegacyBoolean)`.
+Hashes then use `true`; full transactions fail locally with
+`Error::UnsupportedBlockVerbosity` and send no RPC. No mode automatically retries.
 
 Best-tip bracketing is an observation, not an atomic node snapshot. It cannot
 exclude a tip changing away and back, or a mempool change within a stable tip.
@@ -106,8 +127,14 @@ cargo +1.91.0 test -p planchet-rpc-types -p planchet-transport -p planchet-provi
 cargo +1.91.0 clippy -p planchet-rpc-types -p planchet-transport -p planchet-provider --all-features --all-targets --no-deps -- -D warnings
 ```
 
-The general suite contains **28 real localhost HTTP tests**, **2 offline block
-checks**, and **3 exact-number DTO tests**. HTTP checks include raw/verbose data,
+The general suite includes real localhost HTTP tests, offline block checks,
+exact-number DTO tests, and request-builder contracts in `tests/http.rs`. The latter
+cover default/full/reset modes, laziness and Send, empty variants, legacy behavior,
+wrong modes/hashes, and the complete Core 1.14.9 recording with coinbase/payment
+ordering and exact amounts. Separate tests in that file cover Core errors across
+HTTP statuses (`structured_core_errors_survive_non_success_statuses`) and rejection
+without a boolean fallback/replay on the raw-block path
+(`legacy_boolean_is_explicit_and_never_replayed_on_error`). HTTP checks include raw/verbose data,
 complete versus base-only AuxPoW headers, null, non-2xx Core errors, malformed or
 missing envelopes, mismatched/string/null/duplicate IDs, exact body-size boundary,
 chunked/declared oversize bodies, per-call versus transport limits, Basic auth,

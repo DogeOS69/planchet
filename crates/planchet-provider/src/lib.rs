@@ -8,7 +8,7 @@ pub use client::{Client, ClientConfig};
 use planchet_primitives::{BlockHash, Network, Txid};
 pub use planchet_rpc_types as types;
 pub use planchet_transport as transport;
-pub use provider::{Provider, UtxoObservation, UtxoStatus, UtxoUnknown};
+pub use provider::{GetBlock, Provider, UtxoObservation, UtxoStatus, UtxoUnknown};
 use serde_json::value::RawValue;
 use std::fmt;
 pub use verify::{BlockCheck, check_raw_block};
@@ -33,6 +33,11 @@ pub enum Error {
         reason: &'static str,
     },
     RequestIdExhausted,
+    /// The configured getblock mode cannot express the requested verbosity; no RPC was sent.
+    UnsupportedBlockVerbosity {
+        verbosity: u8,
+        mode: types::BlockVerbosity,
+    },
     NetworkMismatch {
         expected: Network,
         chain: String,
@@ -77,6 +82,16 @@ impl fmt::Display for Error {
             Self::HttpStatus { status } => write!(f, "RPC HTTP status {status}"),
             Self::InvalidResponse { method, reason } => write!(f, "{method}: {reason}"),
             Self::RequestIdExhausted => f.write_str("RPC request IDs exhausted"),
+            Self::UnsupportedBlockVerbosity { verbosity, mode } => {
+                let mode = match mode {
+                    types::BlockVerbosity::Numeric => "numeric",
+                    types::BlockVerbosity::LegacyBoolean => "legacy boolean",
+                };
+                write!(
+                    f,
+                    "getblock verbosity {verbosity} is unsupported in {mode} mode"
+                )
+            }
             Self::NetworkMismatch {
                 expected,
                 chain,

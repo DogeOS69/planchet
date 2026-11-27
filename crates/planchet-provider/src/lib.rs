@@ -82,10 +82,16 @@ impl fmt::Display for Error {
             Self::HttpStatus { status } => write!(f, "RPC HTTP status {status}"),
             Self::InvalidResponse { method, reason } => write!(f, "{method}: {reason}"),
             Self::RequestIdExhausted => f.write_str("RPC request IDs exhausted"),
-            Self::UnsupportedBlockVerbosity { verbosity, mode } => write!(
-                f,
-                "getblock verbosity {verbosity} is unsupported in {mode:?} mode"
-            ),
+            Self::UnsupportedBlockVerbosity { verbosity, mode } => {
+                let mode = match mode {
+                    types::BlockVerbosity::Numeric => "numeric",
+                    types::BlockVerbosity::LegacyBoolean => "legacy boolean",
+                };
+                write!(
+                    f,
+                    "getblock verbosity {verbosity} is unsupported in {mode} mode"
+                )
+            }
             Self::NetworkMismatch {
                 expected,
                 chain,

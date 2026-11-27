@@ -27,15 +27,17 @@ and `is_empty()`. The provider selects the decoder from the requested mode;
 `Block::deserialize_full` decodes full transactions. Empty arrays retain their
 requested variant. There is no shape-guessing `Deserialize` for `Block`.
 
-`BlockTransaction` exposes `txid`, Core-reported `hash` (both typed `Txid`),
+`BlockTransaction` exposes `txid: Txid`, Core-reported `hash: Wtxid`,
 `size`, `vsize`, optional `weight`, `version`, `locktime`, ordered `vin`/`vout`,
 and optional `hex`. Outputs reuse `TransactionOutput` and `RpcAmount`.
 `TransactionInput` has `kind`, `sequence`, optional `script_sig: ScriptSig`
 (`asm`, `hex`), and optional `txinwitness: Vec<String>`. Its kind is
 `TransactionInputKind::Coinbase { coinbase }` or `Spend { txid: Txid, vout: u32 }`.
 Mixed coinbase/outpoint fields, incomplete outpoints, and explicit null category
-fields are rejected. Core's reported transaction hash is retained independently
-of its txid; neither is recomputed from optional hex.
+fields are rejected. Core reports `hash` using `GetWitnessHash`; its bytes equal
+`txid` for transactions without witness data. The fields remain independent;
+neither is recomputed from optional hex. The synthetic DTO test deliberately uses
+different IDs to check that both reported values are preserved.
 
 The three number tests cover exact source-token round trips, scientific notation,
 values beyond f64 integer precision, 1 koinu, u64::MAX and overflow, strict excess

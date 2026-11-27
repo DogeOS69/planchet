@@ -6,7 +6,7 @@ extern crate alloc;
 mod number;
 use alloc::{string::String, vec::Vec};
 pub use number::{AmountError, JsonNumber, RpcAmount};
-use planchet_primitives::{BlockHash, MerkleRoot, Txid};
+use planchet_primitives::{BlockHash, MerkleRoot, Txid, Wtxid};
 use serde::{Deserialize, Serialize};
 
 /// Serde at the RPC boundary uses the primitives' canonical display/parser contract.
@@ -278,9 +278,10 @@ pub struct TransactionOutput {
 pub struct BlockTransaction {
     #[serde(with = "hash")]
     pub txid: Txid,
-    /// Core-reported transaction hash; retained independently of `txid`, not recomputed.
+    /// Core's `GetWitnessHash`, retained independently of `txid`, not recomputed.
+    /// Its bytes equal `txid` for transactions without witness data.
     #[serde(with = "hash")]
-    pub hash: Txid,
+    pub hash: Wtxid,
     pub size: u64,
     pub vsize: u64,
     #[serde(default)]
@@ -416,7 +417,8 @@ mod tests {
         );
         let tx: BlockTransaction = serde_json::from_str(&text).unwrap();
         assert_eq!(tx.txid, ID.parse().unwrap());
-        assert_eq!(tx.hash, OTHER.parse().unwrap());
+        // Synthetic independent IDs check preservation, not consistency with optional hex.
+        assert_eq!(tx.hash, Wtxid::from_rpc_hex(OTHER).unwrap());
         assert_eq!(tx.weight, Some(600));
         assert_eq!(tx.hex.as_deref(), Some("0102"));
         for (input, id, vout, sequence) in [(&tx.vin[0], OTHER, 3, 7), (&tx.vin[1], ID, 1, 8)] {

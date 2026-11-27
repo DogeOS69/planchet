@@ -74,20 +74,9 @@ and [BlockTransactions](https://docs.rs/alloy-network-primitives/2.6.1/alloy_net
 It uses Dogecoin Core RPC and UTXO DTOs without an Alloy dependency:
 
 ```rust
-use planchet_primitives::BlockHash;
-use planchet_provider::{Error, Provider, transport::Transport};
-
-pub async fn read_block<T: Transport>(provider: &Provider<T>, hash: BlockHash) -> Result<(), Error> {
-    let block = provider.get_block_by_hash(hash).await?; // getblock(hash, 1)
-    let txids = block.transactions.as_hashes().unwrap();
-    let full = provider.get_block_by_hash(hash).full().await?; // getblock(hash, 2)
-    let transactions = full.transactions.as_transactions().unwrap();
-    assert_eq!(transactions.len(), txids.len());
-
-    let hashes_again = provider.get_block_by_hash(hash).full().hashes().await?;
-    assert_eq!(hashes_again.transactions.as_hashes(), Some(txids));
-    Ok(())
-}
+let block = provider.get_block_by_hash(hash).await?; // getblock(hash, 1)
+let full = provider.get_block_by_hash(hash).full().await?; // getblock(hash, 2)
+let reset = provider.get_block_by_hash(hash).full().hashes().await?;
 ```
 
 `GetBlock` is a lazy, Send `IntoFuture`; building, changing modes, or dropping an
@@ -141,8 +130,11 @@ cargo +1.91.0 clippy -p planchet-rpc-types -p planchet-transport -p planchet-pro
 The general suite includes real localhost HTTP tests, offline block checks,
 exact-number DTO tests, and request-builder contracts in `tests/http.rs`. The latter
 cover default/full/reset modes, laziness and Send, empty variants, legacy behavior,
-wrong modes/hashes, Core errors without replay, and the complete Core 1.14.9
-recording with coinbase/payment ordering and exact amounts. HTTP checks include raw/verbose data,
+wrong modes/hashes, and the complete Core 1.14.9 recording with coinbase/payment
+ordering and exact amounts. Separate tests in that file cover Core errors across
+HTTP statuses (`structured_core_errors_survive_non_success_statuses`) and rejection
+without a boolean fallback/replay on the raw-block path
+(`legacy_boolean_is_explicit_and_never_replayed_on_error`). HTTP checks include raw/verbose data,
 complete versus base-only AuxPoW headers, null, non-2xx Core errors, malformed or
 missing envelopes, mismatched/string/null/duplicate IDs, exact body-size boundary,
 chunked/declared oversize bodies, per-call versus transport limits, Basic auth,

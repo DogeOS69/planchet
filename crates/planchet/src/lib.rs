@@ -33,7 +33,7 @@ pub use planchet_primitives as primitives;
 pub use primitives::{
     Address, AddressError, AddressKind, Amount, BlockHash, ChainParams, FeeRate, Hash160,
     MerkleRoot, Network, OutPoint, ParseAmountError, ParseHashError, ParseNetworkError, Sighash,
-    Txid, hash160, sha256, sha256d,
+    Txid, Wtxid, hash160, sha256, sha256d,
 };
 
 #[cfg(feature = "rpc")]

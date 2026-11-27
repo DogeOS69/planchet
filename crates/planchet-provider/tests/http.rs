@@ -193,7 +193,7 @@ async fn block_builder_legacy_full_is_local_and_hashes_keep_old_contract() {
     assert!(
         error
             .to_string()
-            .contains("getblock verbosity 2 is unsupported in LegacyBoolean mode")
+            .contains("getblock verbosity 2 is unsupported in legacy boolean mode")
     );
     let default = p.get_block_by_hash(hash).await.unwrap();
     let reset = p.get_block_by_hash(hash).full().hashes().await.unwrap();

@@ -1,7 +1,7 @@
 //! Independent expectations and provenance are described in VECTORS.md.
 use planchet_primitives::{
     Address, AddressError, AddressKind, Amount, BlockHash, FeeRate, Hash160, MerkleRoot, Network,
-    OutPoint, ParseAmountError, Sighash, Txid, hash160, sha256d,
+    OutPoint, ParseAmountError, Sighash, Txid, Wtxid, hash160, sha256d,
 };
 
 fn hex<const N: usize>(text: &str) -> [u8; N] {
@@ -14,6 +14,16 @@ fn ids_reverse_text_exactly_once_and_signing_digests_never_reverse() {
     let wire = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     let reversed = "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100";
     assert_eq!(Txid::from_wire_bytes(wire).to_string(), reversed);
+    assert_eq!(Wtxid::from_wire_bytes(wire).to_string(), reversed);
+    assert_eq!(Wtxid::from_rpc_hex(reversed).unwrap().to_wire_bytes(), wire);
+    assert_eq!(
+        reversed
+            .to_uppercase()
+            .parse::<Wtxid>()
+            .unwrap()
+            .to_wire_bytes(),
+        wire
+    );
     assert_eq!(BlockHash::from_wire_bytes(wire).to_string(), reversed);
     assert_eq!(MerkleRoot::from_wire_bytes(wire).to_string(), reversed);
     assert_eq!(reversed.parse::<Txid>().unwrap().to_wire_bytes(), wire);
@@ -41,6 +51,7 @@ fn ids_reverse_text_exactly_once_and_signing_digests_never_reverse() {
         "é0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
     ] {
         assert!(malformed.parse::<Txid>().is_err(), "{malformed}");
+        assert!(Wtxid::from_rpc_hex(malformed).is_err(), "{malformed}");
     }
 }
 

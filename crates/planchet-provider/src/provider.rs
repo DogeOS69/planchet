@@ -97,6 +97,23 @@ impl<T: Transport> Provider<T> {
     }
     /// Builds a lazy block read, returning transaction hashes by default.
     /// Use `.full().await` for full transactions, or `.hashes()` to restore the default.
+    /// In [`BlockVerbosity::LegacyBoolean`] mode, awaiting `.full()` returns
+    /// [`Error::UnsupportedBlockVerbosity`] locally without sending an RPC.
+    ///
+    /// ```
+    /// use planchet_primitives::BlockHash;
+    /// use planchet_provider::{Error, Provider, transport::Transport};
+    ///
+    /// async fn read<T: Transport>(provider: &Provider<T>, hash: BlockHash) -> Result<(), Error> {
+    ///     let block = provider.get_block_by_hash(hash).await?; // verbosity 1
+    ///     assert!(block.transactions.as_hashes().is_some());
+    ///     let full = provider.get_block_by_hash(hash).full().await?; // verbosity 2
+    ///     assert!(full.transactions.as_transactions().is_some());
+    ///     let reset = provider.get_block_by_hash(hash).full().hashes().await?;
+    ///     assert!(reset.transactions.as_hashes().is_some());
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn get_block_by_hash(&self, hash: BlockHash) -> GetBlock<'_, T> {
         GetBlock {
             provider: self,
@@ -332,6 +349,8 @@ pub struct GetBlock<'a, T> {
 }
 impl<T> GetBlock<'_, T> {
     /// Request full transaction observations (`getblock(hash, 2)`).
+    /// In [`BlockVerbosity::LegacyBoolean`] mode, awaiting this request returns
+    /// [`Error::UnsupportedBlockVerbosity`] locally without sending an RPC.
     pub fn full(mut self) -> Self {
         self.full = true;
         self

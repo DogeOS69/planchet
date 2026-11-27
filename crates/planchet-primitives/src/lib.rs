@@ -21,8 +21,8 @@ pub use amount::{Amount, FeeRate, ParseAmountError};
 #[cfg(feature = "keccak")]
 pub use hash::keccak256;
 pub use hash::{
-    BlockHash, Hash160, MerkleRoot, ParseHashError, Sighash, Txid, hash160, sha256, sha256_parts,
-    sha256d, sha256d_parts,
+    BlockHash, Hash160, MerkleRoot, ParseHashError, Sighash, Txid, Wtxid, hash160, sha256,
+    sha256_parts, sha256d, sha256d_parts,
 };
 pub use network::{ChainParams, Network, ParseNetworkError};
 

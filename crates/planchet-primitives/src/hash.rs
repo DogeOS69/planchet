@@ -145,6 +145,12 @@ hash_type!(
     "Transaction identifier; text uses reversed wire bytes."
 );
 hash_type!(
+    Wtxid,
+    32,
+    true,
+    "Witness transaction identifier (Core's GetWitnessHash); text uses reversed wire bytes."
+);
+hash_type!(
     BlockHash,
     32,
     true,
@@ -179,4 +185,4 @@ macro_rules! rpc_hex {
         }
     )+ };
 }
-rpc_hex!(Txid, BlockHash, MerkleRoot);
+rpc_hex!(Txid, Wtxid, BlockHash, MerkleRoot);

@@ -1,7 +1,7 @@
 # planchet-consensus
 
 Rust 2024, **MSRV 1.91**. Project release license pending. Dependencies use Rust
-cryptographic implementations; SHA-256 selects the software backend. No C
+cryptographic implementations; SHA-256 defaults to the software backend. No C
 cryptography, native build dependency, or nintondo dependency is used. Upstream
 `sha2 0.10` still declares `cpufeatures` and, on some targets, Rust `libc`
 bindings even with `force-soft`; these are visible in Cargo's dependency graph.
@@ -14,6 +14,23 @@ bindings even with `force-soft`; these are visible in Cargo's dependency graph.
 | `alloc` (default) | Also expose `transaction` and `sighash` modules for owned transactions and offline signing |
 | `std` | Implies `alloc`, forwards primitives' `std` feature |
 | `pow-scrypt` | Optional native scrypt tools, implies `alloc`; does not validate AuxPoW mining commitments |
+| `keccak` | Forward primitives' portable `keccak256` API (Keccak-256, not SHA3-256) |
+| `crypto-backend` | Forward application provider registration; enables no optional algorithms or allocator |
+
+All consensus SHA256d operations use primitives' application provider, including
+native and owned txids, header IDs, Merkle and inclusion hashes, signing hashes,
+and stripped witness parent txids. Primitives expose `sha256`, `sha256_parts`,
+`sha256d`, `hash160`, and `sha256d_parts`, plus `keccak256` with `keccak`.
+`sha256_parts` computes a single digest; `sha256d_parts` routes both rounds through
+the same provider. The software default streams all parts without allocation.
+Borrowed decoding itself remains allocation-free.
+
+Applications install a `planchet_crypto::CryptoProvider` with `crypto-backend`.
+Registration is independent of optional `keccak`, `k256`, and `p256` features;
+SHA-only applications need no optional algorithms. Every enabled provider method
+has a portable Rust software default. Accelerator implementations and guest
+initialization belong to the final application. On targets without atomics,
+registration requires an application-provided `critical-section` implementation.
 
 The fixed-stack Merkle calculator does not allocate a transaction-count-sized
 vector. Borrowed decoders never allocate. Iterators re-read validated bytes,

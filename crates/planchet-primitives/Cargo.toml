@@ -10,8 +10,12 @@ description = "Allocation-free Dogecoin hashes, networks, addresses, and exact a
 default = ["alloc"]
 alloc = []
 std = ["alloc"]
+keccak = ["planchet-crypto/keccak"]
+crypto-backend = ["planchet-crypto/crypto-backend"]
 
 [dependencies]
-sha2 = { version = "0.10.9", default-features = false, features = ["force-soft"] }
+planchet-crypto = { path = "../planchet-crypto", default-features = false }
+# Digest is used for RIPEMD-160, whose SHA-256 input uses the provider.
+digest = { version = "0.10.7", default-features = false }
 ripemd = { version = "0.1.3", default-features = false }
 bs58 = { version = "0.5.1", default-features = false }

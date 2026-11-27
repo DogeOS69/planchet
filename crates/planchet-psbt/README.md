@@ -4,6 +4,15 @@ BIP174 v0 ordered key/value maps and checked offline P2PKH payment operations.
 Rust 2024, workspace MSRV 1.91. The default `alloc` feature enables the API;
 without it the crate is an empty `no_std` shell. `alloc` itself needs no `std`.
 
+`crypto-backend` enables the shared application crypto provider through
+`planchet-crypto`, primitives and consensus. Registration selects no algorithms;
+enable `alloc` separately for this crate's API and secp256k1 verification.
+Existing SEC1 validation, transaction/sighash hashing and mathematical
+signature verification use the active provider. Without installation they use
+software defaults. Strict DER, low-S policy, template and budget checks, and
+atomic PSBT updates remain enforced here. See the facade README for provider
+installation.
+
 ## Codec and updates
 
 `PsbtV0::decode(bytes, PsbtLimits)` bounds bytes, map entries and field lengths,

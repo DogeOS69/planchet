@@ -8,14 +8,16 @@ description = "Prehashed pure Rust secp256k1 signing and explicit legacy signatu
 
 [features]
 default = ["local", "psbt"]
-verify = ["dep:k256"]
+verify = ["dep:k256", "dep:planchet-crypto", "planchet-crypto/k256"]
 local = ["verify", "dep:zeroize"]
 psbt = ["verify", "dep:planchet-psbt"]
+crypto-backend = ["planchet-crypto/crypto-backend", "planchet-primitives/crypto-backend", "planchet-consensus/crypto-backend", "planchet-psbt?/crypto-backend"]
 
 [dependencies]
 planchet-primitives = { path = "../planchet-primitives", default-features = false }
 planchet-consensus = { path = "../planchet-consensus", default-features = false, features = ["alloc"] }
 planchet-psbt = { path = "../planchet-psbt", default-features = false, features = ["alloc"], optional = true }
+planchet-crypto = { path = "../planchet-crypto", default-features = false, optional = true }
 k256 = { version = "0.13.4", default-features = false, features = ["ecdsa"], optional = true }
 zeroize = { version = "1.8", default-features = false, features = ["alloc"], optional = true }
 

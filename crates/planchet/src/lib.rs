@@ -3,8 +3,15 @@
 //! Default features enable `alloc`, primitives and consensus, without networking.
 //! Disable defaults for the allocation-free core. `rpc` enables the provider and
 //! abstract transport; `http` adds HTTP. `psbt` and `signer-local` enable offline
-//! transaction/signing functionality; `pow-scrypt` separately enables native PoW
+//! transaction/signing functionality; `signer` enables verification without local
+//! private-key signing; `pow-scrypt` separately enables scrypt PoW
 //! hashing. All types are reexports from their owning crates.
+//!
+//! `keccak` adds `keccak256`; `k256` and `p256` expose prehash verification in
+//! `crypto`. `crypto-backend` exposes the application's crypto provider hook;
+//! ordinary hashing and verification APIs use the installed provider, or the
+//! portable software implementation when no provider has been installed.
+//! Local private-key signing is a separate `signer-local` opt-in.
 //!
 //! ```
 //! use planchet::{Address, Amount, FeeRate, Hash160, Network};
@@ -26,7 +33,7 @@ pub use planchet_primitives as primitives;
 pub use primitives::{
     Address, AddressError, AddressKind, Amount, BlockHash, ChainParams, FeeRate, Hash160,
     MerkleRoot, Network, OutPoint, ParseAmountError, ParseHashError, ParseNetworkError, Sighash,
-    Txid, hash160, sha256d,
+    Txid, hash160, sha256, sha256d,
 };
 
 #[cfg(feature = "rpc")]
@@ -35,7 +42,19 @@ pub use planchet_provider as provider;
 pub use planchet_psbt as psbt;
 #[cfg(feature = "rpc")]
 pub use planchet_rpc_types as rpc_types;
-#[cfg(feature = "signer-local")]
+#[cfg(feature = "signer")]
 pub use planchet_signer as signer;
 #[cfg(feature = "rpc")]
 pub use planchet_transport as transport;
+
+/// Hashing, prehashed ECDSA verification and application-owned crypto providers.
+///
+/// Curve-specific functions are enabled by `k256` and `p256`. `crypto-backend`
+/// exposes `CryptoProvider`, `SoftwareCrypto`, `crypto_provider()` and
+/// `install_default_provider(&'static dyn CryptoProvider)`.
+#[cfg(any(feature = "crypto-backend", feature = "k256", feature = "p256"))]
+pub use planchet_crypto as crypto;
+
+/// Keccak-256 (Ethereum padding, distinct from SHA3-256).
+#[cfg(feature = "keccak")]
+pub use primitives::keccak256;

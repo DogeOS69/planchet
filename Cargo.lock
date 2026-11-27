@@ -91,6 +91,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "critical-section"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
+
+[[package]]
 name = "crypto-bigint"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -249,6 +255,12 @@ dependencies = [
  "rand_core",
  "subtle",
 ]
+
+[[package]]
+name = "hex-literal"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
 
 [[package]]
 name = "hmac"
@@ -490,6 +502,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -531,6 +552,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "p256"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
+dependencies = [
+ "ecdsa",
+ "elliptic-curve",
+ "primeorder",
+ "sha2",
+]
+
+[[package]]
 name = "pbkdf2"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -557,6 +590,7 @@ name = "planchet"
 version = "0.1.0"
 dependencies = [
  "planchet-consensus",
+ "planchet-crypto",
  "planchet-primitives",
  "planchet-provider",
  "planchet-psbt",
@@ -569,9 +603,23 @@ dependencies = [
 name = "planchet-consensus"
 version = "0.1.0"
 dependencies = [
+ "planchet-crypto",
  "planchet-primitives",
  "scrypt",
+]
+
+[[package]]
+name = "planchet-crypto"
+version = "0.1.0"
+dependencies = [
+ "critical-section",
+ "hex-literal",
+ "k256",
+ "p256",
+ "serde_json",
  "sha2",
+ "sha3",
+ "spin",
 ]
 
 [[package]]
@@ -579,8 +627,9 @@ name = "planchet-primitives"
 version = "0.1.0"
 dependencies = [
  "bs58",
+ "digest",
+ "planchet-crypto",
  "ripemd",
- "sha2",
 ]
 
 [[package]]
@@ -602,6 +651,7 @@ version = "0.1.0"
 dependencies = [
  "k256",
  "planchet-consensus",
+ "planchet-crypto",
  "planchet-primitives",
  "serde_json",
 ]
@@ -621,6 +671,7 @@ version = "0.1.0"
 dependencies = [
  "k256",
  "planchet-consensus",
+ "planchet-crypto",
  "planchet-primitives",
  "planchet-psbt",
  "serde_json",
@@ -642,6 +693,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d83eb9bc6d8e5cf568e7a1101d60ee05e81ed50ea106026f3d18deeb046d7661"
 dependencies = [
  "zerovec",
+]
+
+[[package]]
+name = "primeorder"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
+dependencies = [
+ "elliptic-curve",
 ]
 
 [[package]]
@@ -831,6 +891,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
+dependencies = [
+ "digest",
+ "keccak",
+]
+
+[[package]]
 name = "signature"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -861,6 +931,12 @@ dependencies = [
  "libc",
  "windows-sys",
 ]
+
+[[package]]
+name = "spin"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "023a211cb3138dbc438680b32560ad89f699977624c9f8dbb95a47d5b4c07dd3"
 
 [[package]]
 name = "stable_deref_trait"

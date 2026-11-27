@@ -5,8 +5,7 @@ use crate::{
     decode::{Cursor, bound, exact},
 };
 use core::{iter::FusedIterator, ops::Range};
-use planchet_primitives::{BlockHash, MerkleRoot, Txid, sha256d};
-use sha2::{Digest, Sha256};
+use planchet_primitives::{BlockHash, MerkleRoot, Txid, sha256d, sha256d_parts};
 
 pub const BASE_HEADER_LEN: usize = 80;
 pub const AUXPOW_VERSION_FLAG: i32 = 1 << 8;
@@ -378,15 +377,17 @@ impl<'a> ParentCoinbaseRef<'a> {
         }
     }
     /// Parent txid excludes marker, flags, and witness, even when retained in wire bytes.
+    /// Both hash rounds use the application provider through `sha256d_parts`;
+    /// the portable software default streams without allocation.
     pub fn txid(&self) -> Txid {
         if !self.witness_encoding {
             return Txid::from_wire_bytes(sha256d(self.bytes));
         }
-        let mut hash = Sha256::new();
-        hash.update(&self.bytes[..4]);
-        hash.update(&self.bytes[self.body_start..self.layout.outputs_end]);
-        hash.update(&self.bytes[self.layout.lock_time_start..]);
-        Txid::from_wire_bytes(Sha256::digest(hash.finalize()).into())
+        Txid::from_wire_bytes(sha256d_parts(&[
+            &self.bytes[..4],
+            &self.bytes[self.body_start..self.layout.outputs_end],
+            &self.bytes[self.layout.lock_time_start..],
+        ]))
     }
 }
 

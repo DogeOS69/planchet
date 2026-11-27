@@ -1,16 +1,43 @@
 //! Fixed-size hashes. Only identifiers reverse bytes at the text boundary.
 use core::{fmt, str::FromStr};
+use digest::Digest;
+use planchet_crypto::crypto_provider;
 use ripemd::Ripemd160;
-use sha2::{Digest, Sha256};
+
+/// SHA-256(input), in raw digest order, using the application provider.
+pub fn sha256(input: &[u8]) -> [u8; 32] {
+    crypto_provider().sha256(input)
+}
+
+/// A single SHA-256 digest of concatenated parts, in raw digest order.
+/// The software default streams without allocating. This is not SHA256d.
+pub fn sha256_parts(parts: &[&[u8]]) -> [u8; 32] {
+    crypto_provider().sha256_parts(parts)
+}
 
 /// SHA-256(SHA-256(input)), in raw digest/wire order.
 pub fn sha256d(input: &[u8]) -> [u8; 32] {
-    Sha256::digest(Sha256::digest(input)).into()
+    let provider = crypto_provider();
+    provider.sha256(&provider.sha256(input))
+}
+
+/// SHA256d of concatenated parts, in raw digest/wire order.
+/// Both rounds use the same provider. The software default never allocates.
+pub fn sha256d_parts(parts: &[&[u8]]) -> [u8; 32] {
+    let provider = crypto_provider();
+    provider.sha256(&provider.sha256_parts(parts))
 }
 
 /// RIPEMD-160(SHA-256(input)), in raw digest order.
+/// The SHA-256 round uses the application provider.
 pub fn hash160(input: &[u8]) -> [u8; 20] {
-    Ripemd160::digest(Sha256::digest(input)).into()
+    Ripemd160::digest(sha256(input)).into()
+}
+
+/// Keccak-256(input), in raw digest order. This is not SHA3-256.
+#[cfg(feature = "keccak")]
+pub fn keccak256(input: &[u8]) -> [u8; 32] {
+    crypto_provider().keccak256(input)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -1,11 +1,12 @@
 use alloc::vec::Vec;
 use core::fmt;
-use k256::ecdsa::{Signature, VerifyingKey, signature::hazmat::PrehashVerifier};
+use k256::ecdsa::Signature;
 use planchet_consensus::{
     script::match_p2pkh,
     sighash::{SighashError, SighashType, legacy_sighash_for_signing},
     transaction::{PaymentBudget, PaymentError, Prevout, Transaction},
 };
+use planchet_crypto::{validate_k256_public_key, verify_k256_prehash};
 use planchet_primitives::{Sighash, hash160};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,20 +45,12 @@ impl From<SighashError> for Error {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicKey {
     bytes: Vec<u8>,
-    key: VerifyingKey,
 }
 impl PublicKey {
     pub fn from_sec1_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if !matches!(
-            (bytes.len(), bytes.first()),
-            (33, Some(2 | 3)) | (65, Some(4))
-        ) {
-            return Err(Error::InvalidPublicKey);
-        }
-        let key = VerifyingKey::from_sec1_bytes(bytes).map_err(|_| Error::InvalidPublicKey)?;
+        validate_k256_public_key(bytes).map_err(|_| Error::InvalidPublicKey)?;
         Ok(Self {
             bytes: bytes.into(),
-            key,
         })
     }
     pub fn as_bytes(&self) -> &[u8] {
@@ -111,9 +104,8 @@ pub fn verify_historical(
         .signature
         .normalize_s()
         .unwrap_or(signature.signature);
-    public_key
-        .key
-        .verify_prehash(digest.as_ref(), &mathematical)
+    let compact = mathematical.to_bytes().into();
+    verify_k256_prehash(public_key.as_bytes(), digest.as_wire_bytes(), &compact)
         .map_err(|_| Error::InvalidSignature)
 }
 
@@ -256,7 +248,6 @@ impl LocalSigner {
                 .to_encoded_point(self.compressed)
                 .as_bytes()
                 .into(),
-            key: *self.key.verifying_key(),
         }
     }
 }

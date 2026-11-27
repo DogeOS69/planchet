@@ -12,6 +12,20 @@ consumer should disable defaults and select `verify` (optionally `psbt`). k256's
 shared `ecdsa` implementation feature includes its backend signing routines;
 the verification profile exposes no `LocalSigner` API or randomness requirement.
 
+`crypto-backend` enables application provider registration through
+`planchet-crypto` and forwards it to primitives, consensus and an already-enabled
+PSBT dependency. Registration selects no algorithms or signing API; enable
+`verify` or `psbt` separately for secp256k1 verification. Existing SEC1 decoding and
+prehash verification use the installed provider, with software defaults when
+none is installed. `LocalSigner` always uses RustCrypto for private-key signing.
+Strict DER and low/high-S policy remain enforced here, independently of the
+provider. See the facade README for `CryptoProvider` and one-time installation.
+
+`PublicKey` retains only its original SEC1 bytes, so compressed and uncompressed
+encodings remain distinct for equality and P2PKH. Construction validates the
+key; every verification uses the currently installed provider, including for
+keys constructed before installation and keys derived by `LocalSigner`.
+
 `SignRequest::p2pkh` validates the exact template/key, all explicit trusted
 prevouts and payment budget before computing the legacy digest. Its fields are
 private. Alternatively convert an already checked PSBT request with

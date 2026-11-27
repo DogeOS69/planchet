@@ -285,7 +285,8 @@ pub struct TransactionOutput {
     pub script_pub_key: ScriptPubKey,
 }
 
-/// Core's block transaction observation. `hex` and `weight` may be absent.
+/// Core's full transaction observation, shared by full blocks and standalone lookups.
+/// `hex` and `weight` may be absent.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BlockTransaction {
     #[serde(with = "hash")]
@@ -302,6 +303,8 @@ pub struct BlockTransaction {
     pub locktime: u32,
     pub vin: Vec<TransactionInput>,
     pub vout: Vec<TransactionOutput>,
+    /// Core-supplied serialized transaction bytes in hex, when reported.
+    /// No local reconstruction is performed.
     #[serde(default)]
     pub hex: Option<String>,
 }
@@ -365,6 +368,44 @@ impl<'de> Deserialize<'de> for TransactionInput {
             sequence: fields.sequence,
             script_sig: fields.script_sig,
             txinwitness: fields.txinwitness,
+        })
+    }
+}
+
+/// A full `getrawtransaction` observation with optional inclusion metadata.
+/// Missing metadata does not establish absence or active-chain inclusion.
+/// `transaction.hex` optionally holds Core-supplied serialized bytes in hex;
+/// no local reconstruction is performed.
+#[derive(Clone, Debug)]
+pub struct TransactionResponse {
+    pub transaction: BlockTransaction,
+    pub blockhash: Option<BlockHash>,
+    /// Core's signed confirmation count, when reported; not a finality guarantee.
+    pub confirmations: Option<i64>,
+    pub time: Option<u64>,
+    pub blocktime: Option<u64>,
+}
+impl<'de> Deserialize<'de> for TransactionResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Metadata {
+            #[serde(default, deserialize_with = "optional_hash::deserialize")]
+            blockhash: Option<BlockHash>,
+            confirmations: Option<i64>,
+            time: Option<u64>,
+            blocktime: Option<u64>,
+        }
+        // Parse both views from the original JSON: flatten would lose RawValue amounts.
+        let raw = alloc::boxed::Box::<serde_json::value::RawValue>::deserialize(d)?;
+        let transaction = serde_json::from_str(raw.get()).map_err(serde::de::Error::custom)?;
+        let metadata: Metadata =
+            serde_json::from_str(raw.get()).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            transaction,
+            blockhash: metadata.blockhash,
+            confirmations: metadata.confirmations,
+            time: metadata.time,
+            blocktime: metadata.blocktime,
         })
     }
 }

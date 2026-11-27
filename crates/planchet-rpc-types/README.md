@@ -16,8 +16,26 @@ Hash fields use the primitives' canonical Display/FromStr boundary. Verbose
 blocks with txids remain distinct from raw wire bytes; verbose transaction DTOs
 never claim that missing signed bytes can be reconstructed. All decimal-valued
 fields use exact amount or raw-number DTOs. Integer counters use checked serde
-integer parsing. BlockInfo parses header/tail views from the original raw JSON
-because serde flatten's intermediate representation would lose raw numeric tokens.
+integer parsing. BlockInfo and the full block decoder share header/tail parsing
+from the original raw JSON because serde flatten's intermediate representation
+would lose raw numeric tokens.
+
+`Block { header, size, transactions }` uses `BlockTransactions::Hashes(Vec<Txid>)`
+or `Full(Vec<BlockTransaction>)`, with `as_hashes()`, `as_transactions()`, `len()`
+and `is_empty()`. The provider selects the decoder from the requested mode;
+`BlockInfo` decodes hashes and converts into `Block`, while
+`Block::deserialize_full` decodes full transactions. Empty arrays retain their
+requested variant. There is no shape-guessing `Deserialize` for `Block`.
+
+`BlockTransaction` exposes `txid`, Core-reported `hash` (both typed `Txid`),
+`size`, `vsize`, optional `weight`, `version`, `locktime`, ordered `vin`/`vout`,
+and optional `hex`. Outputs reuse `TransactionOutput` and `RpcAmount`.
+`TransactionInput` has `kind`, `sequence`, optional `script_sig: ScriptSig`
+(`asm`, `hex`), and optional `txinwitness: Vec<String>`. Its kind is
+`TransactionInputKind::Coinbase { coinbase }` or `Spend { txid: Txid, vout: u32 }`.
+Mixed coinbase/outpoint fields, incomplete outpoints, and explicit null category
+fields are rejected. Core's reported transaction hash is retained independently
+of its txid; neither is recomputed from optional hex.
 
 The three number tests cover exact source-token round trips, scientific notation,
 values beyond f64 integer precision, 1 koinu, u64::MAX and overflow, strict excess

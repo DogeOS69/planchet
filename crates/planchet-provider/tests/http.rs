@@ -4,10 +4,11 @@ use planchet_primitives::{Network, OutPoint};
 use planchet_provider::{
     Client, ClientConfig, Error, Provider, UtxoStatus, UtxoUnknown,
     transport::{BasicAuth, Error as TransportError, HttpConfig, HttpTransport},
-    types::{BlockVerbosity, SpendView},
+    types::{BlockTransactions, BlockVerbosity, SpendView, TransactionInputKind},
 };
 use serde_json::json;
 use std::{
+    future::IntoFuture,
     io::Write,
     net::TcpListener,
     thread,
@@ -42,6 +43,195 @@ fn parent(confirmations: i64, blockhash: Option<&str>) -> String {
         blockhash.map_or("null".into(), quote)
     )
 }
+
+const FULL_BLOCK: &str = include_str!("fixtures/regtest-115-verbose.json");
+const FULL_HASH: &str = "47ea9ba351b01055d60266eeccefa10f38be653b82d186a3c087366a038eed18";
+const COINBASE: &str = "5fd1843277d6785d2f0aabc5134275a08c0438033889270ed97b4cc0d0f7a1d1";
+const PAYMENT: &str = "91ad35ec9a22b3d1c451fea8523c4152eb875f2b6543ca573ba685af9d1949df";
+fn block_with_tx(tx: &str) -> String {
+    // Preserve original number tokens and extra Core fields in derived mode samples.
+    let mut fields: std::collections::BTreeMap<String, Box<serde_json::value::RawValue>> =
+        serde_json::from_str(FULL_BLOCK).unwrap();
+    fields.insert("tx".into(), serde_json::from_str(tx).unwrap());
+    serde_json::to_string(&fields).unwrap()
+}
+fn block_hashes() -> String {
+    block_with_tx(&format!(r#"["{COINBASE}","{PAYMENT}"]"#))
+}
+
+#[tokio::test]
+async fn block_builder_default_and_full_preserve_core_fixture() {
+    fn require_send<T: Send>(value: T) -> T {
+        value
+    }
+    let hashes = block_hashes();
+    let server = Server::start(vec![
+        Step::result("getblock", json!([FULL_HASH, 1]), &hashes),
+        Step::result("getblock", json!([FULL_HASH, 2]), FULL_BLOCK),
+    ]);
+    let p = Provider::new(transport(&server));
+    let hash = FULL_HASH.parse().unwrap();
+    // Dropping either unpolled mode must leave the server's two expected calls untouched.
+    for request in [p.get_block_by_hash(hash), p.get_block_by_hash(hash).full()] {
+        drop(require_send(require_send(request).into_future()));
+    }
+    let block = p.get_block_by_hash(hash).await.unwrap();
+    assert_eq!(
+        block.transactions.as_hashes().unwrap(),
+        &[COINBASE.parse().unwrap(), PAYMENT.parse().unwrap()]
+    );
+    assert!(block.transactions.as_transactions().is_none());
+    let full = require_send(p.get_block_by_hash(hash).full().into_future())
+        .await
+        .unwrap();
+    assert_eq!(full.size, 659);
+    assert_eq!(full.header.difficulty.as_str(), "4.656542373906925e-10");
+    assert_eq!(
+        full.header.chainwork,
+        "00000000000000000000000000000000000000000000000000000000000000e8"
+    );
+    assert_eq!(full.transactions.len(), 2);
+    assert!(!full.transactions.is_empty());
+    assert!(full.transactions.as_hashes().is_none());
+    let tx = full.transactions.as_transactions().unwrap();
+    assert_eq!(
+        [tx[0].txid.to_string(), tx[1].txid.to_string()],
+        [COINBASE, PAYMENT]
+    );
+    assert!(tx.iter().all(|tx| tx.hex.is_none() && tx.weight.is_none()));
+    assert!(
+        matches!(&tx[0].vin[0].kind, TransactionInputKind::Coinbase { coinbase } if coinbase == "01730101")
+    );
+    assert_eq!(tx[0].vin[0].sequence, u32::MAX);
+    assert!(tx[0].vin[0].script_sig.is_none());
+    assert!(
+        matches!(tx[1].vin[0].kind, TransactionInputKind::Spend { txid, vout: 1 } if txid.to_string() == "97fadce49693712ba823ee726dab962e1fc192c841411b8dd21611ea24ff746e")
+    );
+    assert_eq!(tx[1].vin[0].sequence, u32::MAX - 1);
+    assert!(
+        tx[1].vin[0]
+            .script_sig
+            .as_ref()
+            .unwrap()
+            .asm
+            .contains("[ALL]")
+    );
+    let outputs: Vec<_> = tx
+        .iter()
+        .flat_map(|tx| &tx.vout)
+        .map(|o| (o.n, o.value.koinu(), o.value.source_text()))
+        .collect();
+    assert_eq!(
+        outputs,
+        [
+            (0, 50_000_000_226_000, "500000.00226000"),
+            (1, 0, "0.00000000"),
+            (0, 275_000_000, "2.75000000"),
+            (1, 1_049_774_000, "10.49774000")
+        ]
+    );
+    assert_eq!(server.finish().len(), 2);
+}
+
+#[tokio::test]
+async fn block_builder_keeps_empty_modes_and_rejects_wrong_shapes() {
+    let empty = block_with_tx("[]");
+    let hashes = block_hashes();
+    let mixed = block_with_tx(&format!(r#"["{COINBASE}",{{}}]"#));
+    for (full, response, valid) in [
+        (false, empty.as_str(), true),
+        (true, empty.as_str(), true),
+        (false, FULL_BLOCK, false),
+        (true, hashes.as_str(), false),
+        (false, mixed.as_str(), false),
+    ] {
+        let server = Server::start(vec![Step::result(
+            "getblock",
+            json!([FULL_HASH, if full { 2 } else { 1 }]),
+            response,
+        )]);
+        let p = Provider::new(transport(&server));
+        let request = p.get_block_by_hash(FULL_HASH.parse().unwrap());
+        let result = if full {
+            request.full().await
+        } else {
+            request.await
+        };
+        if valid {
+            let tx = result.unwrap().transactions;
+            assert!(tx.is_empty());
+            assert_eq!(tx.len(), 0);
+            assert!(matches!(
+                (&tx, full),
+                (BlockTransactions::Hashes(_), false) | (BlockTransactions::Full(_), true)
+            ));
+        } else {
+            assert!(matches!(result, Err(Error::InvalidResponse { .. })));
+        }
+        server.finish();
+    }
+}
+
+#[tokio::test]
+async fn block_builder_legacy_full_is_local_and_hashes_keep_old_contract() {
+    let hashes = block_hashes();
+    let server = Server::start(
+        (0..3)
+            .map(|_| Step::result("getblock", json!([FULL_HASH, true]), &hashes))
+            .collect(),
+    );
+    let p = Provider::new(transport(&server)).with_block_verbosity(BlockVerbosity::LegacyBoolean);
+    let hash = FULL_HASH.parse().unwrap();
+    let error = p.get_block_by_hash(hash).full().await.unwrap_err();
+    assert!(matches!(
+        error,
+        Error::UnsupportedBlockVerbosity {
+            verbosity: 2,
+            mode: BlockVerbosity::LegacyBoolean
+        }
+    ));
+    assert!(
+        error
+            .to_string()
+            .contains("getblock verbosity 2 is unsupported in LegacyBoolean mode")
+    );
+    let default = p.get_block_by_hash(hash).await.unwrap();
+    let reset = p.get_block_by_hash(hash).full().hashes().await.unwrap();
+    let old = p.block_info(hash).await.unwrap();
+    assert_eq!(default.transactions.as_hashes(), Some(old.tx.as_slice()));
+    assert_eq!(reset.transactions.as_hashes(), Some(old.tx.as_slice()));
+    assert_eq!(server.finish().len(), 3);
+}
+
+#[tokio::test]
+async fn block_builder_rejects_wrong_hash_and_ambiguous_coinbase() {
+    let hashes = block_hashes();
+    let ambiguous = FULL_BLOCK.replacen(
+        r#""coinbase": "01730101""#,
+        &format!(r#""coinbase": "01730101", "txid": "{PAYMENT}", "vout": 0"#),
+        1,
+    );
+    let server = Server::start(vec![
+        Step::result("getblock", json!([GENESIS, 1]), &hashes),
+        Step::result("getblock", json!([GENESIS, 2]), FULL_BLOCK),
+        Step::result("getblock", json!([FULL_HASH, 2]), &ambiguous),
+    ]);
+    let p = Provider::new(transport(&server));
+    for result in [
+        p.get_block_by_hash(GENESIS.parse().unwrap()).await,
+        p.get_block_by_hash(GENESIS.parse().unwrap()).full().await,
+    ] {
+        assert!(
+            matches!(result, Err(Error::HashMismatch { expected, actual }) if expected.to_string() == GENESIS && actual.to_string() == FULL_HASH)
+        );
+    }
+    assert!(matches!(
+        p.get_block_by_hash(FULL_HASH.parse().unwrap()).full().await,
+        Err(Error::InvalidResponse { .. })
+    ));
+    server.finish();
+}
+
 #[tokio::test]
 async fn real_http_read_path_and_basic_auth() {
     let block = quote(&hex(BLOCK));
